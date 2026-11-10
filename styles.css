@@ -68,7 +68,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .trace-button { min-height:3.45rem; padding:0 1.15rem 0 1.3rem; display:flex; align-items:center; gap:.6rem; color:#03202a; background:linear-gradient(145deg,#a4f5ff,#59d9f5); border:0; border-radius:.9rem; font-weight:720; cursor:pointer; box-shadow:0 8px 28px rgba(45,211,238,.2); transition:filter .2s, transform .1s; }
 .trace-button:hover { filter:brightness(1.07); }
 .trace-button:active { transform:scale(.97); }
+.trace-button:disabled { cursor:progress;filter:saturate(.72);opacity:.82; }
+.trace-button.loading svg { animation:trace-spin .8s linear infinite; }
 .trace-button svg { width:1.1rem; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+@keyframes trace-spin { to { transform:rotate(360deg); } }
 .suggestions { margin-top:1rem; display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:.5rem; font-size:.77rem; color:var(--quiet); }
 .suggestions button { padding:.35rem .65rem; color:var(--muted); border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.035); cursor:pointer; }
 .suggestions button:hover { color:var(--text); border-color:var(--line-strong); }

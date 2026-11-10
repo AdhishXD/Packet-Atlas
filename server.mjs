@@ -8,6 +8,7 @@ import net from 'node:net';
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
 const maxHops = Math.min(Number(process.env.TRACE_MAX_HOPS || 18), 24);
+const traceTimeoutMs = Math.min(Math.max(Number(process.env.TRACE_TIMEOUT_MS || 9000), 3000), 20000);
 
 const mime = {
   '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8',
@@ -22,7 +23,7 @@ function runTraceroute(host) {
       : ['-n','-q','1','-m',String(maxHops),'-w','1',host];
     const child = spawn('traceroute', args, { stdio:['ignore','pipe','pipe'] });
     let output = '', error = '';
-    const timer = setTimeout(() => child.kill('SIGTERM'), 30000);
+    const timer = setTimeout(() => child.kill('SIGTERM'), traceTimeoutMs);
     child.stdout.on('data', chunk => output += chunk);
     child.stderr.on('data', chunk => error += chunk);
     child.on('error', reject);
@@ -164,7 +165,7 @@ async function tracePayload(requestedTarget) {
   const source = await sourcePromise;
   const geolocated = await Promise.all(hops.map(async hop => ({ ...hop, ...(hop.ip ? await geolocate(hop.ip) : {}) })));
   const assessed = geolocated.map(hop => assessLocation(source, hop));
-  const reachedTarget = assessed.some(hop => hop.ip === destination.address);
+  const reachedTarget = assessed.some(hop => hop.ip === destination.address && !hop.limited);
   const lastRespondingIndex = assessed.reduce((last,hop,index) => hop.ip ? index : last, -1);
   const located = lastRespondingIndex < 0 ? assessed.slice(0,1) : assessed.slice(0, Math.min(assessed.length, lastRespondingIndex + (reachedTarget ? 1 : 2)));
   const tcpRttMs = await tcpRttPromise;

@@ -16,7 +16,7 @@ Then open `http://localhost:4173`.
 
 ## Important scope
 
-Every search supplies its own public destination hostname. The server resolves that hostname, runs a fresh traceroute, and geolocates responding public hops. Each estimated coordinate is checked against the measured RTT; a location that is physically impossible is explained but not plotted. A browser cannot expose the user's intermediate routers, standard traceroute measures only one direction, some routers do not respond, and private hops have no public location. If tracing fails, the UI does not invent a replacement route.
+Every search supplies its own public destination hostname or full website URL. The server resolves that hostname, runs a time-bounded traceroute, checks TCP reachability, and geolocates responding public hops plus the destination IP. Each estimated coordinate is checked against measured latency; a location that is physically impossible is explained but not plotted. A browser cannot expose the user's intermediate routers, standard traceroute measures only one direction, some routers do not respond, and private hops have no public location. If routers filter traceroute, the destination estimate remains visible and the UI does not invent the hidden hops.
 
 The items between endpoints are usually routers, not application servers. Packet Atlas uses the correct node type in its copy and never manufactures a coordinate for a silent or private hop.
 

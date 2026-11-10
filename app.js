@@ -28,6 +28,8 @@ const $ = (selector) => document.querySelector(selector);
 const searchForm = $('#searchForm');
 const queryInput = $('#queryInput');
 const targetInput = $('#targetInput');
+const traceButton = searchForm.querySelector('.trace-button');
+const traceButtonLabel = traceButton.querySelector('span');
 const playButton = $('#playButton');
 const restartButton = $('#restartButton');
 const speedSelect = $('#speedSelect');
@@ -35,6 +37,9 @@ const layerItems = [...document.querySelectorAll('.layer-stack li')];
 const labLayerButtons = [...document.querySelectorAll('[data-lab-layer]')];
 let worldGeo = null;
 let lessonQuery = 'How does DNS work?';
+let lessonTargetHost = 'search.example';
+let lessonTargetIp = '203.0.113.10';
+let lessonSourceIp = 'Your public IP';
 let lessonBytes = new TextEncoder().encode(lessonQuery);
 let lessonCipher = new Uint8Array([0x8f,0x29,0xa4,0x71,0x0c,0xe3,0xb8,0x55]);
 let labPinned = false;
@@ -309,7 +314,14 @@ async function loadLiveTrace(targetHost) {
     const response = await fetch(`/api/trace?target=${encodeURIComponent(targetHost)}`, { headers:{ Accept:'application/json' } });
     if (!response.ok) { const problem=await response.json().catch(()=>({})); throw new Error(problem.detail || `Trace returned ${response.status}`); }
     const trace = await response.json();
-    if (!trace.hops?.some(hop => hop.ip)) throw new Error('No responding hops');
+    lessonTargetHost=trace.targetHost;
+    lessonTargetIp=trace.targetIp;
+    lessonSourceIp=trace.source?.ip||lessonSourceIp;
+    const activeLesson=Number(labLayerButtons.find(button=>button.getAttribute('aria-selected')==='true')?.dataset.labLayer||7);
+    selectLabLayer(activeLesson);
+    const hasMeasuredHop=trace.hops?.some(hop => hop.ip);
+    const hasTargetEstimate=Number.isFinite(trace.targetEstimate?.latitude)&&Number.isFinite(trace.targetEstimate?.longitude);
+    if (!hasMeasuredHop&&!hasTargetEstimate) throw new Error('No responding hops or usable destination estimate');
     stages = buildLiveStages(trace);
     const rejected=trace.hops.filter(hop=>hop.locationConfidence==='inconsistent').length;
     $('#routeMode').textContent='Measured hops · checked locations';
@@ -330,20 +342,24 @@ async function loadLiveTrace(targetHost) {
 }
 
 const layerLessons={
-  7:{icon:'Aa',kicker:'Application data',title:'The browser gives your words structure',description:'The query becomes part of an HTTP request. Headers describe the destination, language, accepted formats, and other context the server needs.',inputLabel:'Your words',outputLabel:'HTTP request',input:()=>lessonQuery,output:()=>`GET /search?q=${encodeURIComponent(lessonQuery)}\nHost: search.example\nAccept: text/html`,parts:[['HTTP headers','header-part'],['Query data','payload-part']],changed:'A method, path, and headers surround the query.',why:'Both browser and server now agree on how to interpret the message.',unit:'Data',note:'The example uses an HTTP-style request. HTTP/2 and HTTP/3 encode the same ideas in a more compact form.'},
+  7:{icon:'Aa',kicker:'Application data',title:'The browser gives your words structure',description:'The query becomes part of an HTTP request. Headers describe the destination, language, accepted formats, and other context the server needs.',inputLabel:'Your words',outputLabel:'HTTP request',input:()=>lessonQuery,output:()=>`GET /search?q=${encodeURIComponent(lessonQuery)}\nHost: ${lessonTargetHost}\nAccept: text/html`,parts:[['HTTP headers','header-part'],['Query data','payload-part']],changed:'A method, path, and headers surround the query.',why:'Both browser and server now agree on how to interpret the message.',unit:'Data',note:'The example uses an HTTP-style request. HTTP/2 and HTTP/3 encode the same ideas in a more compact form.'},
   6:{icon:'TLS',kicker:'Presentation · TLS',title:'Readable bytes become ciphertext',description:'UTF‑8 first converts characters into bytes. TLS then uses an authenticated cipher so observers can see packet sizes and endpoints, but not the question itself.',inputLabel:'UTF‑8 bytes',outputLabel:'AES‑GCM ciphertext sample',input:()=>hex(lessonBytes,56),output:()=>hex(lessonCipher,72),parts:[['TLS record','header-part'],['Nonce','trailer-part'],['Encrypted query','payload-part'],['Auth tag','trailer-part']],changed:'The readable byte pattern becomes pseudorandom ciphertext plus an authentication tag.',why:'Encryption protects confidentiality; the tag detects tampering.',unit:'TLS record',note:'This is a real local AES‑GCM demonstration with a temporary key. Production TLS 1.3 performs a key exchange and encrypts the complete HTTP record.'},
   5:{icon:'↔',kicker:'Session state',title:'Both endpoints keep the conversation alive',description:'TLS handshake messages negotiate algorithms and shared keys. The connection then maintains state so later records belong to the same secure conversation.',inputLabel:'Handshake',outputLabel:'Established state',input:()=>`ClientHello → ServerHello\nkey agreement + certificate`,output:()=>`session: established\ncipher: AES-256-GCM\nkey: shared, never transmitted`,parts:[['Session ID','header-part'],['TLS state','payload-part']],changed:'A shared connection context is created around the encrypted records.',why:'Messages can be associated with the correct secure conversation.',unit:'Session',note:'The OSI session layer is conceptual; real web stacks often combine this responsibility with TLS and the application.'},
   4:{icon:'TCP',kicker:'Transport · TCP',title:'The encrypted stream is split and numbered',description:'TCP divides the byte stream into segments. Ports identify applications; sequence and acknowledgement numbers keep data ordered and reveal what needs retransmission.',inputLabel:'Encrypted stream',outputLabel:'TCP segment',input:()=>`${lessonCipher.length} encrypted bytes`,output:()=>`src 52144 → dst 443\nseq 184320 · ack 77102\nflags ACK, PSH`,parts:[['TCP header','header-part'],['Seq 184320','header-part'],['TLS record','payload-part']],changed:'Ports, sequence numbers, acknowledgements, flags, and a checksum are added.',why:'The receiver can order segments, control flow, and recover from loss.',unit:'Segment',note:'HTTP/3 uses QUIC over UDP instead of TCP, but it still provides reliable streams, encryption, and congestion control.'},
-  3:{icon:'IP',kicker:'Network · IP',title:'The segment receives global addresses',description:'IP adds source and destination addresses plus a hop limit. Routers inspect this header and forward the packet toward the next network.',inputLabel:'TCP segment',outputLabel:'IPv4 packet header',input:()=>`TCP header + ${lessonCipher.length} encrypted bytes`,output:()=>`src 103.169.236.165\ndst 142.251.155.119\nTTL 64 · protocol TCP`,parts:[['IP header','header-part'],['TCP header','header-part'],['Encrypted data','payload-part']],changed:'Source, destination, protocol, length, and time-to-live fields are added.',why:'Routers now know where the packet should go and when to discard a looping packet.',unit:'Packet',note:'The addresses shown are study examples. Live mode displays the measured destination and responding hop IPs separately.'},
-  2:{icon:'MAC',kicker:'Data link · Ethernet / Wi‑Fi',title:'Each local link wraps the packet in a frame',description:'A frame uses link-local hardware addresses to cross one Wi‑Fi or Ethernet segment. A router removes it and creates a new frame for the next link.',inputLabel:'IP packet',outputLabel:'Local frame',input:()=>`IP packet for 142.251.155.119`,output:()=>`dst MAC 6C:3B:6B:••:••:••\nsrc MAC A4:83:E7:••:••:••\nFCS 0x91C2`,parts:[['MAC header','header-part'],['IP packet','payload-part'],['FCS','trailer-part']],changed:'Next-hop MAC addresses and an error-detection trailer surround the IP packet.',why:'The packet can cross the current physical network and corruption can be detected.',unit:'Frame',note:'MAC addresses change at every routed link. The destination IP generally stays the same unless translation or tunneling occurs.'},
+  3:{icon:'IP',kicker:'Network · IP',title:'The segment receives global addresses',description:'IP adds source and destination addresses plus a hop limit. Routers inspect this header and forward the packet toward the next network.',inputLabel:'TCP segment',outputLabel:'IPv4 packet header',input:()=>`TCP header + ${lessonCipher.length} encrypted bytes`,output:()=>`src ${lessonSourceIp}\ndst ${lessonTargetIp}\nTTL 64 · protocol TCP`,parts:[['IP header','header-part'],['TCP header','header-part'],['Encrypted data','payload-part']],changed:'Source, destination, protocol, length, and time-to-live fields are added.',why:'Routers now know where the packet should go and when to discard a looping packet.',unit:'Packet',note:'The source is the trace server’s public IP; the destination is the address resolved for the website you entered.'},
+  2:{icon:'MAC',kicker:'Data link · Ethernet / Wi‑Fi',title:'Each local link wraps the packet in a frame',description:'A frame uses link-local hardware addresses to cross one Wi‑Fi or Ethernet segment. A router removes it and creates a new frame for the next link.',inputLabel:'IP packet',outputLabel:'Local frame',input:()=>`IP packet for ${lessonTargetIp}`,output:()=>`dst MAC 6C:3B:6B:••:••:••\nsrc MAC A4:83:E7:••:••:••\nFCS 0x91C2`,parts:[['MAC header','header-part'],['IP packet','payload-part'],['FCS','trailer-part']],changed:'Next-hop MAC addresses and an error-detection trailer surround the IP packet.',why:'The packet can cross the current physical network and corruption can be detected.',unit:'Frame',note:'MAC addresses change at every routed link. The destination IP generally stays the same unless translation or tunneling occurs.'},
   1:{icon:'01',kicker:'Physical signal',title:'Bits become radio, electricity, or light',description:'The network interface encodes zeros and ones as changes in a physical signal. Wi‑Fi uses radio; copper uses voltage; fiber uses tightly controlled pulses of light.',inputLabel:'Frame bits',outputLabel:'Signal pattern',input:()=>bits(lessonBytes,64),output:()=>`radio symbols → electrical waveform → optical pulses`,parts:[['10110010 01101101','payload-part']],changed:'A logical bitstream becomes timed changes in amplitude, phase, frequency, voltage, or light.',why:'Physical media can carry the frame between network interfaces.',unit:'Bits',note:'The animation is symbolic: real modulation encodes multiple bits per symbol and uses error correction, synchronization, and parallel channels.'}
 };
 
 function hex(bytes,limit=64){const value=[...bytes].map(byte=>byte.toString(16).padStart(2,'0')).join(' ');return value.length>limit?`${value.slice(0,limit)}…`:value;}
 function bits(bytes,limit=64){const value=[...bytes].map(byte=>byte.toString(2).padStart(8,'0')).join(' ');return value.length>limit?`${value.slice(0,limit)}…`:value;}
 
-async function preparePacketLesson(query){
+async function preparePacketLesson(query,targetHost){
   lessonQuery=query || lessonQuery;lessonBytes=new TextEncoder().encode(lessonQuery);
+  if(targetHost){
+    try{lessonTargetHost=new URL(targetHost.includes('://')?targetHost:`https://${targetHost}`).hostname||lessonTargetHost;}
+    catch{lessonTargetHost=targetHost;}
+  }
   try{
     const key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt']);
     const iv=crypto.getRandomValues(new Uint8Array(12));
@@ -406,10 +422,23 @@ function animate(now) {
 }
 
 async function startJourney(query, targetHost, restart=false) {
+  if(traceButton.disabled&&!restart)return;
   state.query=query || state.query || 'How does a search travel?';
   labPinned=false;
-  preparePacketLesson(state.query);
-  if (!restart) await loadLiveTrace(targetHost);
+  preparePacketLesson(state.query,targetHost);
+  if (!restart) {
+    traceButton.disabled=true;
+    traceButton.classList.add('loading');
+    searchForm.setAttribute('aria-busy','true');
+    traceButtonLabel.textContent='Tracing website…';
+    try { await loadLiveTrace(targetHost); }
+    finally {
+      traceButton.disabled=false;
+      traceButton.classList.remove('loading');
+      searchForm.removeAttribute('aria-busy');
+      traceButtonLabel.textContent='Trace search';
+    }
+  }
   state.running=true;state.paused=false;state.complete=false;state.stage=0;state.progress=0;state.elapsed=0;state.stageStart=performance.now();state.centerLon=98;state.centerLat=18;state.targetLon=98;state.targetLat=18;state.cameraVelocityLon=0;state.cameraVelocityLat=0;
   playButton.classList.add('playing');playButton.setAttribute('aria-label','Pause simulation');
   $('#answerSection').hidden=true;
