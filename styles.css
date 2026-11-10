@@ -148,6 +148,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .answer-label { color:var(--green);font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase; }
 .answer-card h2 { margin:.22rem 0;font-size:1.05rem;letter-spacing:-.02em; }
 .answer-card p { margin:0;color:var(--muted);font-size:.82rem; }
+.answer-card .answer-location { margin-top:.65rem;padding-top:.65rem;border-top:1px solid rgba(255,255,255,.09);line-height:1.5; }
+.answer-location strong { color:#d9f8ff; }
 .answer-card button { padding:.7rem .9rem;border:1px solid var(--line-strong);border-radius:.7rem;background:rgba(255,255,255,.06);cursor:pointer; }
 
 .packet-lab-section { width:min(1180px,calc(100% - 2rem));margin:8rem auto 0;scroll-margin-top:6rem; }

@@ -43,6 +43,7 @@ let lessonSourceIp = 'Your public IP';
 let lessonBytes = new TextEncoder().encode(lessonQuery);
 let lessonCipher = new Uint8Array([0x8f,0x29,0xa4,0x71,0x0c,0xe3,0xb8,0x55]);
 let labPinned = false;
+let lastTraceExplanation = 'No live destination location was verified for this journey.';
 
 if(!worldGeo){
   fetch('data/countries-110m.geojson')
@@ -293,7 +294,8 @@ function buildLiveStages(trace) {
     };
   });
   const targetEstimate=trace.targetEstimate;
-  const targetEstimateUsable=!trace.reachedTarget&&targetEstimate&&['plausible','estimated'].includes(targetEstimate.locationConfidence)&&Number.isFinite(targetEstimate.latitude)&&Number.isFinite(targetEstimate.longitude);
+  const targetLocationVerified=targetEstimate?.locationConfidence==='verified-estimate'&&Number.isFinite(targetEstimate.latitude)&&Number.isFinite(targetEstimate.longitude);
+  const targetEstimateUsable=!trace.reachedTarget&&targetEstimate?.locationConfidence==='verified-estimate'&&Number.isFinite(targetEstimate.latitude)&&Number.isFinite(targetEstimate.longitude);
   if(targetEstimateUsable){
     newPlaces.traceTarget={name:`Destination estimate · ${targetEstimate.locationLabel || trace.targetHost}`,lat:targetEstimate.latitude,lon:targetEstimate.longitude,type:'server',ip:trace.targetIp,estimated:true};
   }
@@ -314,7 +316,7 @@ function buildLiveStages(trace) {
       : { at:previousLocatedKey || originKey };
     const cable=false;
     const via=[];
-    const confidence = hop.locationConfidence === 'plausible' ? 'Latency-compatible approximate location.' : hop.locationConfidence === 'inconsistent' ? hop.locationReason : 'Approximate IP registration location; latency verification was unavailable.';
+    const confidence = hop.locationReason || 'The physical location could not be independently verified.';
     return {
       kicker: hop.ip === trace.targetIp ? 'Destination reached' : hop.ip ? `Measured router · hop ${hop.hop}` : `No reply · hop ${hop.hop}`,
       title: hop.ip === trace.targetIp ? `Reached ${trace.targetHost}` : label,
@@ -335,10 +337,12 @@ function buildLiveStages(trace) {
   const lastPlace=places[lastKey],targetPlace=places.traceTarget;
   const targetSharesLastRegion=Boolean(targetEstimateUsable&&lastPlace&&targetPlace&&Math.abs(lastPlace.lat-targetPlace.lat)<.25&&Math.abs(lastPlace.lon-targetPlace.lon)<.25);
   const filteredTargetDescription=Number.isFinite(trace.tcpRttMs)
-    ? `UDP traceroute ended at the last responding router, but a TCP test reached ${trace.targetIp} in ${trace.tcpRttMs.toFixed(1)} ms. The dashed span connects known endpoints only; routers inside it remain unknown.`
+    ? `UDP traceroute ended at the last responding router, but a TCP test on port ${trace.tcpPort || 443} reached ${trace.targetIp} in ${trace.tcpRttMs.toFixed(1)} ms. The dashed span connects known endpoints only; routers inside it remain unknown.`
     : `UDP traceroute ended at the last responding router. The destination IP estimate matches the last visible region, but TCP port 443 did not answer this check, so no hidden routers are invented.`;
-  const targetStage=trace.reachedTarget
-    ? { kicker:'Destination IP reached', title:`${trace.targetHost} receives the request`, description:`Traceroute reached ${trace.targetIp}. Its marker is an approximate, latency-compatible IP location—not a claim about a specific server building.`, protocol:'HTTPS', distance:`${responding.length} responding hops`, layers:[7,6,5,4], duration:2100, at:lastKey }
+  const targetStage=trace.reachedTarget&&targetLocationVerified
+    ? { kicker:'Destination IP reached', title:`${trace.targetHost} receives the request`, description:trace.targetExplanation, protocol:'HTTPS', distance:`${responding.length} responding hops`, layers:[7,6,5,4], duration:2100, at:lastKey }
+    : trace.reachedTarget
+      ? { kicker:'Destination answered · location withheld', title:'The destination IP answers, but its city is unknown', description:trace.targetExplanation, protocol:`TCP ${trace.tcpPort || 443}`, distance:'Endpoint unplotted', layers:[7,6,5,4], duration:2100, at:lastKey }
     : targetEstimateUsable
       ? { kicker:'Traceroute filtered', title:'The destination stops answering route probes', description:filteredTargetDescription, protocol:Number.isFinite(trace.tcpRttMs)?'TCP 443':'UDP filtered', distance:targetSharesLastRegion?'Same approximate region':'Unobserved gap', layers:[4,3,2,1], duration:2400, ...(targetSharesLastRegion?{at:'traceTarget'}:{from:lastKey,to:'traceTarget',inferred:true}) }
       : { kicker:'Traceroute filtered', title:'The remaining route is unknown', description:`${trace.targetHost} did not answer UDP traceroute and its physical location could not be verified. Packet Atlas stops at the last responding router instead of inventing the missing path.`, protocol:'UDP filtered', distance:'Unknown', layers:[3,2,1], duration:2400, at:lastKey };
@@ -367,6 +371,7 @@ async function loadLiveTrace(targetHost) {
     const response = await fetch(`${apiBase}/api/trace?target=${encodeURIComponent(targetHost)}`, { headers:{ Accept:'application/json' } });
     if (!response.ok) { const problem=await response.json().catch(()=>({})); throw new Error(problem.detail || `Trace returned ${response.status}`); }
     const trace = await response.json();
+    lastTraceExplanation=trace.targetExplanation || trace.note || 'The destination location could not be verified.';
     lessonTargetHost=trace.targetHost;
     lessonTargetIp=trace.targetIp;
     lessonSourceIp=trace.source?.ip||lessonSourceIp;
@@ -376,13 +381,14 @@ async function loadLiveTrace(targetHost) {
     const hasTargetEstimate=Number.isFinite(trace.targetEstimate?.latitude)&&Number.isFinite(trace.targetEstimate?.longitude);
     if (!hasMeasuredHop&&!hasTargetEstimate) throw new Error('No responding hops or usable destination estimate');
     stages = buildLiveStages(trace);
-    const rejected=trace.hops.filter(hop=>hop.locationConfidence==='inconsistent').length;
+    const rejected=trace.hops.filter(hop=>['inconsistent','unverified'].includes(hop.locationConfidence)).length;
     $('#routeMode').textContent='Measured hops · checked locations';
     const mappedDistance=formatDistance(stages.outboundDistanceKm);
     const distanceQualifier=stages.includesInferredSpan?'great-circle lower bound':'great-circle sum';
-    $('#routeScope').textContent=`${trace.respondingHops} responding hops · ${trace.source?.locationLabel || 'site server'} → ${trace.targetHost} · ${mappedDistance} outbound ${distanceQualifier} · ${trace.reachedTarget?'destination answered traceroute':'destination filtered traceroute'}${rejected?` · ${rejected} impossible location${rejected===1?'':'s'} hidden`:''}`;
+    $('#routeScope').textContent=`${trace.respondingHops} responding hops · ${trace.source?.locationLabel || 'site server'} → ${trace.targetHost} · ${mappedDistance} outbound ${distanceQualifier} · ${trace.reachedTarget?'destination answered traceroute':'destination filtered traceroute'}${rejected?` · ${rejected} unverified location${rejected===1?'':'s'} hidden`:''}`;
     return true;
   } catch (error) {
+    lastTraceExplanation=`The live trace could not verify a destination: ${error.message}. No fallback country was substituted.`;
     const origin=places.traceOrigin?'traceOrigin':null;
     stages = [
       { ...learningStages[0], at:origin, title:'Your question becomes an HTTPS request' },
@@ -506,6 +512,7 @@ function finishJourney(){
   $('#timelineFill').style.width='100%';$('#timelineDot').style.left='100%';$('#timelinePercent').textContent='100%';
   $('#answerQuestion').textContent=`“${state.query}”`;
   $('#answerText').textContent=answerFor(state.query);
+  $('#answerLocation').textContent=lastTraceExplanation;
   $('#answerSection').hidden=false;
   if(!reducedMotion) $('#answerSection').animate([{opacity:0,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0)'}],{duration:450,easing:'cubic-bezier(.2,.8,.2,1)'});
 }

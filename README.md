@@ -26,7 +26,7 @@ The repository includes a GitHub Pages workflow for the static frontend. See [`D
 
 ## Important scope
 
-Every search supplies its own public destination hostname or full website URL. The server resolves that hostname, runs a time-bounded traceroute, checks TCP reachability, and geolocates responding public hops plus the destination IP. Each estimated coordinate is checked against measured latency; a location that is physically impossible is explained but not plotted. A browser cannot expose the user's intermediate routers, standard traceroute measures only one direction, some routers do not respond, and private hops have no public location. If routers filter traceroute, the destination estimate remains visible and the UI does not invent the hidden hops.
+Every search supplies its own public destination hostname or full website URL. The server resolves that hostname, runs a time-bounded traceroute, checks TCP reachability, and compares two independent IP-location services for each responding public hop and destination. A coordinate is plotted only when both sources agree within 250 km and the measured latency makes it physically possible. Disputed or single-source locations are explained but not plotted. A nearby Mumbai or Delhi result can be correct for a French or African website when DNS selects an Indian CDN edge; Packet Atlas labels that as a delivery edge and does not pretend it is the protected origin server.
 
 The items between endpoints are usually routers, not application servers. Packet Atlas uses the correct node type in its copy and never manufactures a coordinate for a silent or private hop.
 

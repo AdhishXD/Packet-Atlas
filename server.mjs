@@ -10,6 +10,8 @@ const root = process.cwd();
 const maxHops = Math.min(Number(process.env.TRACE_MAX_HOPS || 18), 24);
 const traceTimeoutMs = Math.min(Math.max(Number(process.env.TRACE_TIMEOUT_MS || 9000), 3000), 20000);
 const allowedOrigin = String(process.env.ALLOWED_ORIGIN || '').replace(/\/$/, '');
+const geoCache = new Map();
+const geoCacheTtlMs = 6 * 60 * 60 * 1000;
 
 const mime = {
   '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8',
@@ -100,15 +102,28 @@ function haversineKm(a, b) {
 
 function assessLocation(source, hop) {
   if (!Number.isFinite(hop.latitude) || !Number.isFinite(hop.longitude)) return hop;
+  if (hop.geoEvidence?.status !== 'consensus') {
+    return {
+      ...hop,
+      reportedLatitude:hop.latitude,
+      reportedLongitude:hop.longitude,
+      reportedLocationLabel:hop.locationLabel,
+      latitude:null,
+      longitude:null,
+      locationLabel:'Physical location unverified',
+      locationConfidence:'unverified',
+      locationReason:hop.geoEvidence?.reason || 'Fewer than two independent IP-location sources agreed, so this point is not plotted.'
+    };
+  }
   if (!source || !Number.isFinite(source.latitude) || !Number.isFinite(source.longitude) || !Number.isFinite(hop.rttMs)) {
-    return { ...hop, locationConfidence:'estimated', locationReason:'IP registration estimate; latency was unavailable for a physical plausibility check.' };
+    return { ...hop, locationConfidence:'consensus', locationReason:`${hop.geoEvidence.reason} Latency was unavailable for a physical plausibility check.` };
   }
   const geoDistanceKm = haversineKm(source, hop);
   // Light travels about 200 km/ms in fiber. RTT includes the return trip and routing overhead,
   // so RTT × 100 km is a generous one-way ceiling; the margin accommodates noisy measurements.
   const maximumPlausibleKm = Math.max(350, hop.rttMs * 135 + 250);
   if (geoDistanceKm <= maximumPlausibleKm) {
-    return { ...hop, geoDistanceKm, maximumPlausibleKm, locationConfidence:'plausible', locationReason:'Approximate IP location is physically compatible with the measured round-trip time.' };
+    return { ...hop, geoDistanceKm, maximumPlausibleKm, locationConfidence:'verified-estimate', locationReason:`${hop.geoEvidence.reason} The coordinate is also physically compatible with the measured round-trip time.` };
   }
   return {
     ...hop,
@@ -125,33 +140,74 @@ function assessLocation(source, hop) {
   };
 }
 
+function normalizeGeo(source, data) {
+  const latitude=Number(data.latitude ?? data.lat);
+  const longitude=Number(data.longitude ?? data.lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return {
+    source, latitude, longitude,
+    city:data.city || null,
+    region:data.region || data.region_name || null,
+    country:data.country_name || data.country || null,
+    countryCode:data.country_code || data.country_code2 || null,
+    isp:data.org || data.connection?.isp || data.connection?.org || null,
+    asn:data.asn || data.connection?.asn || null
+  };
+}
+
+async function fetchJson(url) {
+  try {
+    const response=await fetch(url,{ signal:AbortSignal.timeout(5000), headers:{ 'User-Agent':'Packet-Atlas/1.0 educational tracer' } });
+    if(!response.ok)return null;
+    return await response.json();
+  } catch { return null; }
+}
+
 async function geolocate(ip) {
   if (isPrivateIp(ip)) return { private:true, locationLabel:'Private network' };
-  try {
-    const response = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`, { signal:AbortSignal.timeout(5000) });
-    if (!response.ok) return {};
-    const data = await response.json();
-    if (!data.success) return {};
-    return {
-      latitude:data.latitude, longitude:data.longitude,
-      locationLabel:[data.city,data.region,data.country].filter(Boolean).join(', '),
-      isp:data.connection?.isp || data.connection?.org || null
-    };
-  } catch { return {}; }
+  const cached=geoCache.get(ip);
+  if(cached&&Date.now()-cached.savedAt<geoCacheTtlMs)return cached.value;
+  const encoded=encodeURIComponent(ip);
+  const [who,api]=await Promise.all([
+    fetchJson(`https://ipwho.is/${encoded}`),
+    fetchJson(`https://ipapi.co/${encoded}/json/`)
+  ]);
+  const samples=[
+    who?.success === false ? null : normalizeGeo('IPWho',who || {}),
+    api?.error ? null : normalizeGeo('IPAPI',api || {})
+  ].filter(Boolean);
+  if(!samples.length)return { geoEvidence:{ status:'missing',providers:[],reason:'No IP-location source returned a usable coordinate.' } };
+  const primary=samples[0];
+  const base={
+    latitude:primary.latitude,longitude:primary.longitude,
+    locationLabel:[primary.city,primary.region,primary.country].filter(Boolean).join(', '),
+    isp:primary.isp,asn:primary.asn,countryCode:primary.countryCode
+  };
+  if(samples.length<2){
+    const value={...base,geoEvidence:{status:'single-source',providers:samples.map(item=>item.source),reason:`Only ${primary.source} returned a coordinate; one database is not enough to claim a physical location.`}};
+    geoCache.set(ip,{savedAt:Date.now(),value});return value;
+  }
+  const disagreementKm=haversineKm(samples[0],samples[1]);
+  if(disagreementKm>250){
+    const value={...base,geoEvidence:{status:'disputed',providers:samples.map(item=>item.source),disagreementKm,reason:`IPWho and IPAPI disagree by about ${Math.round(disagreementKm).toLocaleString('en-US')} km, so Packet Atlas withholds the coordinate.`}};
+    geoCache.set(ip,{savedAt:Date.now(),value});return value;
+  }
+  const value={...base,geoEvidence:{status:'consensus',providers:samples.map(item=>item.source),disagreementKm,reason:`IPWho and IPAPI agree within about ${Math.max(1,Math.round(disagreementKm)).toLocaleString('en-US')} km.`}};
+  geoCache.set(ip,{savedAt:Date.now(),value});return value;
+}
+
+function deliveryNetworkLabel(value='') {
+  const text=String(value).toLowerCase();
+  const matches=[['akamai','Akamai'],['cloudflare','Cloudflare'],['fastly','Fastly'],['cloudfront','Amazon CloudFront'],['amazon','Amazon Web Services'],['imperva','Imperva'],['edgecast','Edgio'],['google','Google'],['microsoft','Microsoft Azure'],['cdn','a CDN']];
+  return matches.find(([needle])=>text.includes(needle))?.[1] || null;
 }
 
 async function locateTraceSource() {
-  try {
-    const response = await fetch('https://ipwho.is/', { signal:AbortSignal.timeout(5000) });
-    if (!response.ok) return null;
-    const data = await response.json();
-    if (!data.success) return null;
-    return {
-      ip:data.ip, latitude:data.latitude, longitude:data.longitude,
-      locationLabel:[data.city,data.region,data.country].filter(Boolean).join(', '),
-      isp:data.connection?.isp || data.connection?.org || null
-    };
-  } catch { return null; }
+  const discovery=await fetchJson('https://ipwho.is/');
+  if(!discovery?.success || !discovery.ip)return null;
+  const location=await geolocate(discovery.ip);
+  if(!Number.isFinite(location.latitude)||!Number.isFinite(location.longitude))return null;
+  return {ip:discovery.ip,...location};
 }
 
 async function tracePayload(requestedTarget) {
@@ -160,7 +216,7 @@ async function tracePayload(requestedTarget) {
   if (isPrivateIp(destination.address)) throw new Error('The destination must resolve to a public IPv4 address');
   const sourcePromise = locateTraceSource();
   const targetGeoPromise = geolocate(destination.address);
-  const tcpRttPromise = measureTcpRtt(destination.address);
+  const tcpRttPromise = Promise.all([measureTcpRtt(destination.address,443),measureTcpRtt(destination.address,80)]);
   let hops;
   try { hops = parseTrace(await runTraceroute(destination.address)); }
   catch { hops = [{ hop:1, ip:destination.address, rttMs:null, limited:true }]; }
@@ -170,18 +226,31 @@ async function tracePayload(requestedTarget) {
   const reachedTarget = assessed.some(hop => hop.ip === destination.address && !hop.limited);
   const lastRespondingIndex = assessed.reduce((last,hop,index) => hop.ip ? index : last, -1);
   const located = lastRespondingIndex < 0 ? assessed.slice(0,1) : assessed.slice(0, Math.min(assessed.length, lastRespondingIndex + (reachedTarget ? 1 : 2)));
-  const tcpRttMs = await tcpRttPromise;
+  const tcpMeasurements=await tcpRttPromise;
+  const reachablePorts=[443,80].map((webPort,index)=>({webPort,rttMs:tcpMeasurements[index]})).filter(item=>Number.isFinite(item.rttMs));
+  const fastestTcp=reachablePorts.sort((a,b)=>a.rttMs-b.rttMs)[0] || null;
+  const tcpRttMs=fastestTcp?.rttMs ?? null;
   const targetEstimate = reachedTarget
     ? assessed.find(hop => hop.ip === destination.address)
     : assessLocation(source, { ip:destination.address, rttMs:tcpRttMs, ...(await targetGeoPromise) });
+  const deliveryNetwork=deliveryNetworkLabel(`${targetEstimate?.isp || ''} ${targetEstimate?.asn || ''}`);
+  const proximityExplanation=deliveryNetwork&&Number.isFinite(tcpRttMs)&&tcpRttMs<35
+    ? ` A ${tcpRttMs.toFixed(1)} ms TCP connection from ${source?.locationLabel || 'the trace server'} indicates a nearby ${deliveryNetwork} edge, not the website owner’s origin country.`
+    : '';
+  const targetExplanation=targetEstimate?.locationConfidence === 'verified-estimate'
+    ? `${targetEstimate.locationReason} DNS resolved ${targetHost} to ${destination.address}${deliveryNetwork ? ` on ${deliveryNetwork}` : ''}. ${deliveryNetwork ? 'That coordinate is likely a nearby delivery edge; the website’s protected origin server may be in another country and cannot be inferred from traceroute.' : 'This is an approximate location for the resolved IP, not proof of a particular building or the website owner’s headquarters.'}`
+    : `${targetEstimate?.locationReason || 'The destination location could not be independently verified.'} DNS resolved ${targetHost} to ${destination.address}${deliveryNetwork ? ` on ${deliveryNetwork}` : ''}, but the combined evidence is not strong enough to plot a physical endpoint.${proximityExplanation}`;
   return {
     targetHost, targetIp:destination.address, traceOrigin:'site-server', source,
     respondingHops:located.filter(hop => hop.ip).length,
     reachedTarget,
     probeProtocol:'UDP traceroute',
     tcpRttMs,
+    tcpPort:fastestTcp?.webPort || null,
     targetEstimate,
-    note:'Traceroute is measured from the site server. IP locations are estimates and are removed from the map when measured latency makes them physically impossible.',
+    deliveryNetwork,
+    targetExplanation,
+    note:'Traceroute is measured from the site server. A point is plotted only when two IP-location sources agree and measured latency does not make it physically impossible.',
     hops:located
   };
 }
