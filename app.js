@@ -26,7 +26,11 @@ const places = {
   mumbai: { name: 'ISP gateway · Mumbai', lat: 19.08, lon: 72.88, type: 'router' },
   singapore: { name: 'DNS resolver · Singapore', lat: 1.35, lon: 103.82, type: 'dns' },
   tokyo: { name: 'Edge server · Tokyo', lat: 35.68, lon: 139.65, type: 'edge' },
-  sf: { name: 'Origin server · California', lat: 37.77, lon: -122.42, type: 'server' }
+  sf: { name: 'Origin server · California', lat: 37.77, lon: -122.42, type: 'server' },
+  cableChennai: { name:'Chennai cable landing · India',lat:13.08,lon:80.3,type:'landing',modeled:true },
+  cableSingapore: { name:'Singapore cable landing',lat:1.29,lon:103.85,type:'landing',modeled:true },
+  cableGuam: { name:'Guam cable landing',lat:13.44,lon:144.79,type:'landing',modeled:true },
+  cableHawaii: { name:'Hawaiʻi cable landing',lat:21.31,lon:-157.86,type:'landing',modeled:true }
 };
 
 const learningStages = [
@@ -81,6 +85,26 @@ function interpolate(a,b,t) {
   return { lon:point[0],lat:point[1] };
 }
 
+function routePointsForStage(stage){
+  if(!stage?.from||!stage?.to)return[];
+  return[places[stage.from],...(stage.via||[]),places[stage.to]].filter(Boolean);
+}
+
+function routePointAt(points,progress){
+  if(points.length<2)return points[0]||{lon:0,lat:0};
+  const distances=[];let total=0;
+  for(let index=0;index<points.length-1;index++){
+    const distance=d3.geoDistance([points[index].lon,points[index].lat],[points[index+1].lon,points[index+1].lat]);
+    distances.push(distance);total+=distance;
+  }
+  let remaining=Math.min(1,Math.max(0,progress))*total;
+  for(let index=0;index<distances.length;index++){
+    if(remaining<=distances[index]||index===distances.length-1)return interpolate(points[index],points[index+1],distances[index]?remaining/distances[index]:1);
+    remaining-=distances[index];
+  }
+  return points.at(-1);
+}
+
 function drawCurve(points, projection, color, lineWidth=1, dash=[], progress=1) {
   ctx.save();
   ctx.strokeStyle=color;
@@ -88,9 +112,9 @@ function drawCurve(points, projection, color, lineWidth=1, dash=[], progress=1) 
   ctx.setLineDash(dash);
   ctx.beginPath();
   const coordinates=[];
-  const clampedProgress=Math.min(1,Math.max(0,progress));
-  for(let s=0;s<points.length-1;s++) for(let i=0;i<=64;i++) {
-    const p=interpolate(points[s],points[s+1],(i/64)*clampedProgress);coordinates.push([p.lon,p.lat]);
+  const clampedProgress=Math.min(1,Math.max(0,progress)),samples=Math.max(64,(points.length-1)*36);
+  for(let index=0;index<=samples;index++){
+    const point=routePointAt(points,(index/samples)*clampedProgress);coordinates.push([point.lon,point.lat]);
   }
   d3.geoPath(projection,ctx)({type:'LineString',coordinates});
   ctx.stroke();
@@ -117,33 +141,40 @@ function drawGlobe(time) {
 
   Object.values(places).forEach(place=>{
     const p=project(place,width,height); if(p.z<=0)return;
-    ctx.fillStyle='rgba(163,226,243,.18)';ctx.beginPath();ctx.arc(p.x,p.y,7,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#b9e9f6';ctx.beginPath();ctx.arc(p.x,p.y,2.1,0,Math.PI*2);ctx.fill();
+    if(place.modeled){
+      ctx.save();ctx.translate(p.x,p.y);ctx.rotate(Math.PI/4);ctx.fillStyle='rgba(255,184,107,.25)';ctx.fillRect(-5,-5,10,10);ctx.fillStyle='#ffb86b';ctx.fillRect(-2.4,-2.4,4.8,4.8);ctx.restore();
+    }else{
+      ctx.fillStyle='rgba(163,226,243,.18)';ctx.beginPath();ctx.arc(p.x,p.y,7,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#b9e9f6';ctx.beginPath();ctx.arc(p.x,p.y,2.1,0,Math.PI*2);ctx.fill();
+    }
   });
 
   const stage=stages[state.stage];
+  if(stage?.via?.length){
+    ctx.save();ctx.font='600 11px -apple-system, BlinkMacSystemFont, sans-serif';ctx.textBaseline='middle';
+    stage.via.forEach(waypoint=>{const p=project(waypoint,width,height);if(p.z<=0)return;const label=waypoint.name.replace(' cable landing','');const measure=ctx.measureText(label);ctx.fillStyle='rgba(5,15,24,.82)';ctx.fillRect(p.x+8,p.y-10,measure.width+10,20);ctx.fillStyle='#ffd29b';ctx.fillText(label,p.x+13,p.y);});
+    ctx.restore();
+  }
   if(state.running||state.complete){
     const completedEnd=state.complete?stages.length:state.stage;
     stages.slice(0,completedEnd).forEach(completed=>{
       if(!completed.from||!completed.to)return;
-      const from=places[completed.from],to=places[completed.to];
-      if(!from||!to)return;
-      if(completed.cable)drawCurve([from,to],projection,'rgba(156,190,205,.25)',1,[4,5]);
-      drawCurve([from,to],projection,completed.response?'rgba(121,239,189,.52)':'rgba(99,230,255,.5)',2);
+      const route=routePointsForStage(completed);if(route.length<2)return;
+      if(completed.cable)drawCurve(route,projection,'rgba(156,190,205,.25)',1,[4,5]);
+      drawCurve(route,projection,completed.response?'rgba(121,239,189,.52)':'rgba(99,230,255,.5)',2);
     });
   }
   if(state.running && stage && stage.from && stage.to){
-    const a=places[stage.from],b=places[stage.to];
-    const route=[a,b];
+    const route=routePointsForStage(stage);
     const eased=reducedMotion?1:state.progress*state.progress*(3-2*state.progress);
     drawCurve(route,projection,stage.response?'rgba(121,239,189,.18)':'rgba(99,230,255,.18)',1.2,[3,5]);
     if(stage.cable)drawCurve(route,projection,'rgba(156,190,205,.3)',1,[4,5],eased);
     drawCurve(route,projection,stage.response?'rgba(121,239,189,.9)':'rgba(99,230,255,.92)',2.4,[],eased);
-    const packet=project(interpolate(a,b,eased),width,height);
+    const packet=project(routePointAt(route,eased),width,height);
     if(packet.z>0){
       const color=stage.response?'#79efbd':'#63e6ff';
       ctx.save();ctx.shadowColor=color;ctx.shadowBlur=20;ctx.fillStyle=color;ctx.beginPath();ctx.arc(packet.x,packet.y,4.4,0,Math.PI*2);ctx.fill();ctx.restore();
-      const trail=project(interpolate(a,b,Math.max(0,eased-.045)),width,height);
+      const trail=project(routePointAt(route,Math.max(0,eased-.045)),width,height);
       if(trail.z>0){ctx.strokeStyle=color;ctx.globalAlpha=.5;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(trail.x,trail.y);ctx.lineTo(packet.x,packet.y);ctx.stroke();ctx.globalAlpha=1;}
     }
   }else if(state.running&&stage?.at&&places[stage.at]){
@@ -175,6 +206,15 @@ function updateStageUI() {
   const focusPlace=stage.to ? places[stage.to] : stage.at ? places[stage.at] : null;
   if(focusPlace){state.targetLon=focusPlace.lon;state.targetLat=Math.max(-45,Math.min(55,focusPlace.lat*.58));}
   if(stage.layers?.length&&!labPinned) selectLabLayer(stage.layers[0],false);
+}
+
+function modeledCableWaypoints(from,to){
+  if(!from||!to)return[];
+  const crossesPacific=(from.lon>55&&from.lon<150&&to.lon<-70)||(to.lon>55&&to.lon<150&&from.lon<-70);
+  if(!crossesPacific)return[];
+  const eastbound=from.lon>55&&from.lon<150;
+  const points=[places.cableChennai,places.cableSingapore,places.cableGuam,places.cableHawaii];
+  return eastbound?points:points.slice().reverse();
 }
 
 function buildLiveStages(trace) {
@@ -211,16 +251,19 @@ function buildLiveStages(trace) {
     const position = hasLocation
       ? (previousLocatedKey ? { from:previousLocatedKey, to:key } : { at:key })
       : { at:previousLocatedKey || originKey };
+    const cable=Boolean(previousLocatedKey&&hasLocation&&Math.abs(newPlaces[previousLocatedKey].lon-newPlaces[key].lon)>18);
+    const via=cable?modeledCableWaypoints(newPlaces[previousLocatedKey],newPlaces[key]):[];
     return {
       kicker: index === measured.length - 1 ? 'Destination reached' : `Measured router · hop ${hop.hop}`,
       title: hop.ip === trace.targetIp ? `Reached ${trace.targetHost}` : label,
-      description: `${hop.ip || 'No public IP returned'}${hop.hostname && hop.hostname !== hop.ip ? ` · ${hop.hostname}` : ''}${hop.isp ? ` · ${hop.isp}` : ''}. ${hasLocation ? 'Position is estimated from the hop’s public IP registration.' : hop.ip ? 'This hop is private or its physical location could not be resolved, so the globe does not invent a position.' : 'This router did not answer traceroute, so its identity and position remain unknown.'}`,
+      description: `${hop.ip || 'No public IP returned'}${hop.hostname && hop.hostname !== hop.ip ? ` · ${hop.hostname}` : ''}${hop.isp ? ` · ${hop.isp}` : ''}. ${hasLocation ? 'Position is estimated from the hop’s public IP registration.' : hop.ip ? 'This hop is private or its physical location could not be resolved, so the globe does not invent a position.' : 'This router did not answer traceroute, so its identity and position remain unknown.'}${via.length?' The ocean portion follows a clearly labeled landing-station study model because traceroute cannot identify the exact cable.':''}`,
       protocol: hop.ip || 'Silent hop',
       distance: hop.rttMs == null ? 'No RTT' : `${hop.rttMs.toFixed(1)} ms RTT`,
       layers: [3,2,1],
       duration: 1750,
       ...position,
-      cable: Boolean(previousLocatedKey && hasLocation && Math.abs(newPlaces[previousLocatedKey].lon - newPlaces[key].lon) > 18)
+      cable,
+      via
     };
   });
 
@@ -232,13 +275,8 @@ function buildLiveStages(trace) {
     ...networkStages,
     { kicker:'Server processing', title:'The search service prepares a response', description:`The measured destination at ${places[lastKey]?.name || trace.targetHost} accepts the request. Application processing happens above the network path we can trace.`, protocol:'HTTPS', distance:`${responding.length} responding hops`, layers:[7,6,5,4], duration:2100, at:lastKey },
     ...networkStages.slice().reverse().map((stage,index) => {
-      const originalIndex=measured.length-1-index;
-      const currentHop=measured[originalIndex];
-      const currentKey=`hop${currentHop.hop}`;
-      const earlierLocated=measured.slice(0,originalIndex).reverse().find(hop => Number.isFinite(hop.latitude) && Number.isFinite(hop.longitude));
-      const currentLocated=Number.isFinite(currentHop.latitude) && Number.isFinite(currentHop.longitude);
-      const position=currentLocated && earlierLocated ? {from:currentKey,to:`hop${earlierLocated.hop}`} : {at:currentLocated?currentKey:(earlierLocated?`hop${earlierLocated.hop}`:firstKey)};
-      return { ...stage, kicker:`Return path model · hop ${currentHop.hop}`, title:originalIndex===0?'Returning to the site server':stage.title, description:`Response traffic returns toward the requester. The exact return path may differ; this animation reverses the measured outbound trace because standard traceroute observes one direction only.`, response:true, ...position };
+      const reversePosition=stage.from&&stage.to?{from:stage.to,to:stage.from,via:[...(stage.via||[])].reverse()}:{at:stage.at||firstKey};
+      return { ...stage, ...reversePosition, kicker:stage.cable?'Return path model · subsea fiber':`Return path model · step ${index+1}`, title:index===networkStages.length-1?'Returning to the site server':stage.title, description:`Response traffic returns toward the requester. Standard traceroute observes only the outbound direction, so this return path is a model and may differ from the real network.`, response:true };
     }),
     { ...learningStages[11], at:firstKey },
     { ...learningStages[12], at:firstKey }
@@ -254,8 +292,8 @@ async function loadLiveTrace() {
     const trace = await response.json();
     if (!trace.hops?.some(hop => hop.ip)) throw new Error('No responding hops');
     stages = buildLiveStages(trace);
-    $('#routeMode').textContent='Live measured route';
-    $('#routeScope').textContent=`${trace.respondingHops} responding hops · ${trace.source?.locationLabel || 'site server'} → ${trace.targetHost} · IP-based locations`;
+    $('#routeMode').textContent='Measured hops + cable model';
+    $('#routeScope').textContent=`${trace.respondingHops} responding hops · ${trace.source?.locationLabel || 'site server'} → ${trace.targetHost} · landing path is modeled`;
     return true;
   } catch (error) {
     stages = learningStages;
@@ -318,6 +356,12 @@ function animate(now) {
     $('#timelineDot').style.left=`${whole*100}%`;
     $('#timelinePercent').textContent=`${Math.round(whole*100)}%`;
     $('#timeMetric').textContent=`${Math.round(state.elapsed/38)} ms`;
+    const activeRoute=routePointsForStage(stage);
+    if(activeRoute.length>1){
+      const cameraProgress=reducedMotion?1:state.progress*state.progress*(3-2*state.progress);
+      const cameraPoint=routePointAt(activeRoute,cameraProgress);
+      state.targetLon=cameraPoint.lon;state.targetLat=Math.max(-45,Math.min(55,cameraPoint.lat*.58));
+    }
     const lonDelta=normalizeLon(state.targetLon-state.centerLon),latDelta=state.targetLat-state.centerLat;
     if(reducedMotion){state.centerLon=state.targetLon;state.centerLat=state.targetLat;}
     else{

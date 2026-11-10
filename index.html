@@ -64,7 +64,8 @@
             <div class="map-legend" aria-label="Map legend">
               <span><i class="legend-request"></i> Request</span>
               <span><i class="legend-response"></i> Response</span>
-              <span><i class="legend-cable"></i> Possible subsea span</span>
+              <span><i class="legend-cable"></i> Modeled subsea fiber</span>
+              <span><i class="legend-landing"></i> Cable landing</span>
             </div>
             <div class="visual-caption">
               <span class="live-pill"><i></i> <span id="routeMode">Ready for live trace</span></span>
@@ -207,7 +208,7 @@
         </div>
         <div class="truth-note">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4M12 16h.01"/></svg>
-          <p><strong>What this can—and cannot—show.</strong> Live mode plots every responding public router using its measured IP. IP location is approximate, private hops have no public coordinates, some routers stay silent, and the return path may differ. The interface marks each of those cases instead of inventing a location.</p>
+          <p><strong>What this can—and cannot—show.</strong> Live mode plots every responding public router using its measured IP. Traceroute cannot reveal the exact submarine cable, so long ocean spans use clearly marked landing-station models. IP location is approximate, private hops may be hidden, and the return route can differ.</p>
         </div>
       </section>
     </main>

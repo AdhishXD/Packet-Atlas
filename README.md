@@ -20,6 +20,8 @@ The app attempts a real traceroute from the website's server to `www.google.com`
 
 The items between endpoints are usually routers, not application servers. Packet Atlas uses the correct node type in its copy and never manufactures a coordinate for a silent or private hop.
 
+For long intercontinental spans, Packet Atlas adds an explicitly labeled physical-route model through cable landing regions in Chennai, Singapore, Guam, Hawaiʻi, and California. These are educational infrastructure waypoints, not measured traceroute hops. Traceroute cannot reveal the exact cable, and even published cable maps use stylized rather than precise seabed routes; see [TeleGeography's submarine cable FAQ](https://www2.telegeography.com/submarine-cable-faqs-frequently-asked-questions).
+
 Queries entered into the interface remain in the browser; only the fixed trace target is contacted by the server.
 
 ## Accessibility
