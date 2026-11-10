@@ -126,6 +126,9 @@ function drawGlobe(time) {
     const p=project(place,width,height); if(p.z<=0)return;
     if(place.modeled){
       ctx.save();ctx.translate(p.x,p.y);ctx.rotate(Math.PI/4);ctx.fillStyle='rgba(255,184,107,.25)';ctx.fillRect(-5,-5,10,10);ctx.fillStyle='#ffb86b';ctx.fillRect(-2.4,-2.4,4.8,4.8);ctx.restore();
+    }else if(place.estimated){
+      ctx.strokeStyle='rgba(99,230,255,.9)';ctx.lineWidth=1.3;ctx.setLineDash([3,3]);ctx.beginPath();ctx.arc(p.x,p.y,7,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle='#b9e9f6';ctx.beginPath();ctx.arc(p.x,p.y,2.1,0,Math.PI*2);ctx.fill();
     }else{
       ctx.fillStyle='rgba(163,226,243,.18)';ctx.beginPath();ctx.arc(p.x,p.y,7,0,Math.PI*2);ctx.fill();
       ctx.fillStyle='#b9e9f6';ctx.beginPath();ctx.arc(p.x,p.y,2.1,0,Math.PI*2);ctx.fill();
@@ -143,8 +146,8 @@ function drawGlobe(time) {
     stages.slice(0,completedEnd).forEach(completed=>{
       if(!completed.from||!completed.to)return;
       const route=routePointsForStage(completed);if(route.length<2)return;
-      if(completed.cable)drawCurve(route,projection,'rgba(156,190,205,.25)',1,[4,5]);
-      drawCurve(route,projection,completed.response?'rgba(121,239,189,.52)':'rgba(99,230,255,.5)',2);
+      if(completed.inferred)drawCurve(route,projection,'rgba(174,196,210,.48)',1.5,[4,6]);
+      else drawCurve(route,projection,completed.response?'rgba(121,239,189,.52)':'rgba(99,230,255,.5)',2);
     });
   }
   if(state.running && stage && stage.from && stage.to){
@@ -152,7 +155,7 @@ function drawGlobe(time) {
     const eased=reducedMotion?1:state.progress*state.progress*(3-2*state.progress);
     drawCurve(route,projection,stage.response?'rgba(121,239,189,.18)':'rgba(99,230,255,.18)',1.2,[3,5]);
     if(stage.cable)drawCurve(route,projection,'rgba(156,190,205,.3)',1,[4,5],eased);
-    drawCurve(route,projection,stage.response?'rgba(121,239,189,.9)':'rgba(99,230,255,.92)',2.4,[],eased);
+    drawCurve(route,projection,stage.inferred?'rgba(174,196,210,.75)':stage.response?'rgba(121,239,189,.9)':'rgba(99,230,255,.92)',stage.inferred?1.6:2.4,stage.inferred?[4,6]:[],eased);
     const packet=project(routePointAt(route,eased),width,height);
     if(packet.z>0){
       const color=stage.response?'#79efbd':'#63e6ff';
@@ -212,6 +215,11 @@ function buildLiveStages(trace) {
       ip: hop.ip
     };
   });
+  const targetEstimate=trace.targetEstimate;
+  const targetEstimateUsable=!trace.reachedTarget&&targetEstimate&&['plausible','estimated'].includes(targetEstimate.locationConfidence)&&Number.isFinite(targetEstimate.latitude)&&Number.isFinite(targetEstimate.longitude);
+  if(targetEstimateUsable){
+    newPlaces.traceTarget={name:`Destination estimate · ${targetEstimate.locationLabel || trace.targetHost}`,lat:targetEstimate.latitude,lon:targetEstimate.longitude,type:'server',ip:trace.targetIp,estimated:true};
+  }
   livePlaceKeys = Object.keys(newPlaces);
   Object.assign(places, newPlaces);
 
@@ -231,7 +239,7 @@ function buildLiveStages(trace) {
     const via=[];
     const confidence = hop.locationConfidence === 'plausible' ? 'Latency-compatible approximate location.' : hop.locationConfidence === 'inconsistent' ? hop.locationReason : 'Approximate IP registration location; latency verification was unavailable.';
     return {
-      kicker: index === measured.length - 1 ? 'Destination reached' : `Measured router · hop ${hop.hop}`,
+      kicker: hop.ip === trace.targetIp ? 'Destination reached' : hop.ip ? `Measured router · hop ${hop.hop}` : `No reply · hop ${hop.hop}`,
       title: hop.ip === trace.targetIp ? `Reached ${trace.targetHost}` : label,
       description: `${hop.ip || 'No public IP returned'}${hop.hostname && hop.hostname !== hop.ip ? ` · ${hop.hostname}` : ''}${hop.isp ? ` · ${hop.isp}` : ''}. ${hasLocation ? confidence : hop.ip ? (hop.locationReason || 'This hop’s physical location could not be resolved, so the globe does not invent a position.') : 'This router did not answer traceroute, so its identity and position remain unknown.'}`,
       protocol: hop.ip || 'Silent hop',
@@ -246,16 +254,28 @@ function buildLiveStages(trace) {
 
   const firstKey = originKey;
   const lastKey = locatedKeys.at(-1) || firstKey;
+  const visibleEndKey=targetEstimateUsable?'traceTarget':lastKey;
+  const lastPlace=places[lastKey],targetPlace=places.traceTarget;
+  const targetSharesLastRegion=Boolean(targetEstimateUsable&&lastPlace&&targetPlace&&Math.abs(lastPlace.lat-targetPlace.lat)<.25&&Math.abs(lastPlace.lon-targetPlace.lon)<.25);
+  const filteredTargetDescription=Number.isFinite(trace.tcpRttMs)
+    ? `UDP traceroute ended at the last responding router, but a TCP test reached ${trace.targetIp} in ${trace.tcpRttMs.toFixed(1)} ms. The dashed span connects known endpoints only; routers inside it remain unknown.`
+    : `UDP traceroute ended at the last responding router. The destination IP estimate matches the last visible region, but TCP port 443 did not answer this check, so no hidden routers are invented.`;
+  const targetStage=trace.reachedTarget
+    ? { kicker:'Destination IP reached', title:`${trace.targetHost} receives the request`, description:`Traceroute reached ${trace.targetIp}. Its marker is an approximate, latency-compatible IP location—not a claim about a specific server building.`, protocol:'HTTPS', distance:`${responding.length} responding hops`, layers:[7,6,5,4], duration:2100, at:lastKey }
+    : targetEstimateUsable
+      ? { kicker:'Traceroute filtered', title:'The destination stops answering route probes', description:filteredTargetDescription, protocol:Number.isFinite(trace.tcpRttMs)?'TCP 443':'UDP filtered', distance:targetSharesLastRegion?'Same approximate region':'Unobserved gap', layers:[4,3,2,1], duration:2400, ...(targetSharesLastRegion?{at:'traceTarget'}:{from:lastKey,to:'traceTarget',inferred:true}) }
+      : { kicker:'Traceroute filtered', title:'The remaining route is unknown', description:`${trace.targetHost} did not answer UDP traceroute and its physical location could not be verified. Packet Atlas stops at the last responding router instead of inventing the missing path.`, protocol:'UDP filtered', distance:'Unknown', layers:[3,2,1], duration:2400, at:lastKey };
   return [
     { ...learningStages[0], title:'Your question becomes an HTTPS request', at:originKey },
     { ...learningStages[1], at:originKey },
     ...networkStages,
-    { kicker:'Destination IP reached', title:`${trace.targetHost} receives the request`, description:`Traceroute resolved ${trace.targetHost} to ${trace.targetIp}. The marker is the last latency-compatible location, not a claim about the server building. Application processing happens above the network path traceroute can observe.`, protocol:'HTTPS', distance:`${responding.length} responding hops`, layers:[7,6,5,4], duration:2100, at:lastKey },
+    targetStage,
+    ...(targetStage.from&&targetStage.to?[{...targetStage,from:targetStage.to,to:targetStage.from,response:true,title:'The response returns through hidden routers',description:'The destination can answer HTTPS even when routers ignore traceroute. This dashed return span connects known endpoints only; its internal hops and exact path are unknown.'}]:[]),
     ...networkStages.slice().reverse().map((stage,index) => {
       const reversePosition=stage.from&&stage.to?{from:stage.to,to:stage.from,via:[...(stage.via||[])].reverse()}:{at:stage.at||firstKey};
       return { ...stage, ...reversePosition, kicker:stage.cable?'Return path model · subsea fiber':`Return path model · step ${index+1}`, title:index===networkStages.length-1?'Returning to the site server':stage.title, description:`Response traffic returns toward the requester. Standard traceroute observes only the outbound direction, so this return path is a model and may differ from the real network.`, response:true };
     }),
-    { ...learningStages[2], at:firstKey },
+    { ...learningStages[2], at:firstKey, description:`The visible return animation is a teaching model from ${places[visibleEndKey]?.name || 'the last known endpoint'}; the real return route can differ and may include hidden routers.` },
     { ...learningStages[3], at:firstKey }
   ];
 }
@@ -271,7 +291,7 @@ async function loadLiveTrace(targetHost) {
     stages = buildLiveStages(trace);
     const rejected=trace.hops.filter(hop=>hop.locationConfidence==='inconsistent').length;
     $('#routeMode').textContent='Measured hops · checked locations';
-    $('#routeScope').textContent=`${trace.respondingHops} responding hops · ${trace.source?.locationLabel || 'site server'} → ${trace.targetHost}${rejected?` · ${rejected} impossible location${rejected===1?'':'s'} hidden`:''}`;
+    $('#routeScope').textContent=`${trace.respondingHops} responding hops · ${trace.source?.locationLabel || 'site server'} → ${trace.targetHost} · ${trace.reachedTarget?'destination answered traceroute':'destination filtered traceroute'}${rejected?` · ${rejected} impossible location${rejected===1?'':'s'} hidden`:''}`;
     return true;
   } catch (error) {
     const origin=places.traceOrigin?'traceOrigin':null;

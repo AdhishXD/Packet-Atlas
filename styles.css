@@ -89,6 +89,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .map-legend i { width:1.4rem; height:2px; display:block; background:var(--cyan); }
 .map-legend .legend-response { background:var(--green); }
 .map-legend .legend-estimate { width:.55rem;height:.55rem;border:1px solid var(--cyan);border-radius:50%;background:rgba(99,230,255,.2);box-shadow:0 0 8px rgba(99,230,255,.28); }
+.map-legend .legend-gap { height:1px;background:repeating-linear-gradient(90deg,var(--quiet) 0 3px,transparent 3px 7px); }
 .visual-caption { position:absolute; z-index:2; left:2rem; right:2rem; bottom:2rem; display:flex; justify-content:space-between; color:var(--quiet); font-size:.7rem; }
 .live-pill { display:flex; align-items:center; gap:.42rem; color:var(--muted); }
 .live-pill i { width:.38rem; height:.38rem; border-radius:50%; background:var(--orange); }

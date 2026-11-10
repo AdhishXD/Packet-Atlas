@@ -34,6 +34,26 @@ function runTraceroute(host) {
   });
 }
 
+function measureTcpRtt(host, port=443) {
+  return new Promise(resolve => {
+    const started = performance.now();
+    const socket = net.createConnection({ host, port });
+    let settled = false;
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(5000, () => finish(null));
+    socket.once('connect', () => finish(performance.now() - started));
+    socket.once('error', error => {
+      const elapsed = performance.now() - started;
+      finish(['ECONNREFUSED','ECONNRESET'].includes(error.code) && elapsed < 1500 ? elapsed : null);
+    });
+  });
+}
+
 function parseTrace(text) {
   return text.split('\n').map(line => {
     const number = line.match(/^\s*(\d+)\s+/);
@@ -136,15 +156,28 @@ async function tracePayload(requestedTarget) {
   const destination = await lookup(targetHost, { family:4 });
   if (isPrivateIp(destination.address)) throw new Error('The destination must resolve to a public IPv4 address');
   const sourcePromise = locateTraceSource();
+  const targetGeoPromise = geolocate(destination.address);
+  const tcpRttPromise = measureTcpRtt(destination.address);
   let hops;
   try { hops = parseTrace(await runTraceroute(destination.address)); }
   catch { hops = [{ hop:1, ip:destination.address, rttMs:null, limited:true }]; }
   const source = await sourcePromise;
   const geolocated = await Promise.all(hops.map(async hop => ({ ...hop, ...(hop.ip ? await geolocate(hop.ip) : {}) })));
-  const located = geolocated.map(hop => assessLocation(source, hop));
+  const assessed = geolocated.map(hop => assessLocation(source, hop));
+  const reachedTarget = assessed.some(hop => hop.ip === destination.address);
+  const lastRespondingIndex = assessed.reduce((last,hop,index) => hop.ip ? index : last, -1);
+  const located = lastRespondingIndex < 0 ? assessed.slice(0,1) : assessed.slice(0, Math.min(assessed.length, lastRespondingIndex + (reachedTarget ? 1 : 2)));
+  const tcpRttMs = await tcpRttPromise;
+  const targetEstimate = reachedTarget
+    ? assessed.find(hop => hop.ip === destination.address)
+    : assessLocation(source, { ip:destination.address, rttMs:tcpRttMs, ...(await targetGeoPromise) });
   return {
     targetHost, targetIp:destination.address, traceOrigin:'site-server', source,
     respondingHops:located.filter(hop => hop.ip).length,
+    reachedTarget,
+    probeProtocol:'UDP traceroute',
+    tcpRttMs,
+    targetEstimate,
     note:'Traceroute is measured from the site server. IP locations are estimates and are removed from the map when measured latency makes them physically impossible.',
     hops:located
   };
