@@ -38,7 +38,7 @@
         <form class="search-shell" id="searchForm" role="search">
           <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4 4"/></svg>
           <label class="sr-only" for="queryInput">Enter a question to trace</label>
-          <input id="queryInput" name="query" type="search" autocomplete="off" maxlength="120" placeholder="Ask something — “How do undersea cables work?”" />
+          <input id="queryInput" name="query" type="search" autocomplete="off" maxlength="120" value="How does DNS find this website?" placeholder="Ask something — “How do undersea cables work?”" />
           <button class="trace-button" type="submit">
             <span>Trace search</span>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M14 7l5 5-5 5"/></svg>
@@ -46,7 +46,7 @@
         </form>
         <div class="destination-control">
           <label for="targetInput"><span>Trace destination</span><small>Paste any public website or hostname</small></label>
-          <input id="targetInput" name="target" form="searchForm" type="text" inputmode="url" autocomplete="url" autocapitalize="none" spellcheck="false" maxlength="253" placeholder="https://www.wikipedia.org" required />
+          <input id="targetInput" name="target" form="searchForm" type="text" inputmode="url" autocomplete="url" autocapitalize="none" spellcheck="false" maxlength="253" value="www.wikipedia.org" placeholder="https://www.wikipedia.org" required />
         </div>
         <div class="suggestions" aria-label="Example destinations">
           <span>Try a region</span>
@@ -211,7 +211,8 @@
       <div class="sheet-fact"><span>Private by design</span><strong>No query leaves this page</strong></div>
     </aside>
 
-    <script src="/node_modules/d3/dist/d3.min.js"></script>
+    <script src="config.js"></script>
+    <script src="node_modules/d3/dist/d3.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

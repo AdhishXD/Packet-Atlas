@@ -9,6 +9,7 @@ const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
 const maxHops = Math.min(Number(process.env.TRACE_MAX_HOPS || 18), 24);
 const traceTimeoutMs = Math.min(Math.max(Number(process.env.TRACE_TIMEOUT_MS || 9000), 3000), 20000);
+const allowedOrigin = String(process.env.ALLOWED_ORIGIN || '').replace(/\/$/, '');
 
 const mime = {
   '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8',
@@ -202,6 +203,24 @@ async function serveFile(req,res) {
 }
 
 const server = http.createServer(async (req,res) => {
+  const requestOrigin = String(req.headers.origin || '').replace(/\/$/, '');
+  const corsAllowed = allowedOrigin === '*' || (allowedOrigin && requestOrigin === allowedOrigin);
+  if (corsAllowed) {
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigin === '*' ? '*' : requestOrigin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Accept, Content-Type');
+  }
+  if (req.method === 'OPTIONS') {
+    res.writeHead(corsAllowed ? 204 : 403);
+    res.end();
+    return;
+  }
+  if (req.url === '/api/health') {
+    res.writeHead(200, { 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store' });
+    res.end(JSON.stringify({ ok:true, traceroute:true }));
+    return;
+  }
   if (req.url?.startsWith('/api/trace')) {
     try {
       const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);

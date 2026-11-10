@@ -1,0 +1,44 @@
+name: Deploy frontend to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build static frontend
+        run: |
+          mkdir -p _site/assets _site/data _site/node_modules/d3/dist
+          cp index.html learn.html styles.css learn.css app.js learn.js config.js _site/
+          cp -R assets/. _site/assets/
+          cp data/countries-110m.geojson _site/data/
+          cp node_modules/d3/dist/d3.min.js _site/node_modules/d3/dist/
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -16,6 +16,12 @@ npm start
 
 Then open `http://localhost:4173`.
 
+Do not open `index.html` directly with a `file://` URL when testing live routes. Browsers cannot run the included traceroute API; the Node server must be running.
+
+## Deploy
+
+The repository includes a GitHub Pages workflow for the static frontend. See [`DEPLOYMENT.md`](DEPLOYMENT.md) for setup and for the small external backend required to keep live Trace search working. GitHub Pages cannot execute Node or traceroute by itself.
+
 ## Important scope
 
 Every search supplies its own public destination hostname or full website URL. The server resolves that hostname, runs a time-bounded traceroute, checks TCP reachability, and geolocates responding public hops plus the destination IP. Each estimated coordinate is checked against measured latency; a location that is physically impossible is explained but not plotted. A browser cannot expose the user's intermediate routers, standard traceroute measures only one direction, some routers do not respond, and private hops have no public location. If routers filter traceroute, the destination estimate remains visible and the UI does not invent the hidden hops.

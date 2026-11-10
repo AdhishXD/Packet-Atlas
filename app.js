@@ -44,7 +44,7 @@ let lessonBytes = new TextEncoder().encode(lessonQuery);
 let lessonCipher = new Uint8Array([0x8f,0x29,0xa4,0x71,0x0c,0xe3,0xb8,0x55]);
 let labPinned = false;
 
-fetch('/data/countries-110m.geojson')
+fetch('data/countries-110m.geojson')
   .then(response => response.ok ? response.json() : Promise.reject(new Error('World geometry unavailable')))
   .then(data => { worldGeo = data; })
   .catch(() => { worldGeo = null; });
@@ -345,7 +345,9 @@ async function loadLiveTrace(targetHost) {
   $('#routeMode').textContent='Measuring live hops…';
   $('#routeScope').textContent='Waiting for responding routers';
   try {
-    const response = await fetch(`/api/trace?target=${encodeURIComponent(targetHost)}`, { headers:{ Accept:'application/json' } });
+    if(location.protocol==='file:')throw new Error('Live tracing needs the Packet Atlas server. Run “npm start”, then open http://localhost:4173');
+    const apiBase=String(window.PACKET_ATLAS_API_BASE||'').replace(/\/$/,'');
+    const response = await fetch(`${apiBase}/api/trace?target=${encodeURIComponent(targetHost)}`, { headers:{ Accept:'application/json' } });
     if (!response.ok) { const problem=await response.json().catch(()=>({})); throw new Error(problem.detail || `Trace returned ${response.status}`); }
     const trace = await response.json();
     lessonTargetHost=trace.targetHost;
