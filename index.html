@@ -22,7 +22,7 @@
       <nav aria-label="Page sections">
         <a class="nav-link active" href="#simulator">Journey</a>
         <a class="nav-link" href="#packet-lab">OSI model</a>
-        <a class="nav-link" href="#learn">Learn</a>
+        <a class="nav-link" href="learn.html">Learn</a>
       </nav>
       <button class="icon-button" id="infoButton" type="button" aria-label="About this simulation" aria-controls="aboutPanel" aria-expanded="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10.6v6M12 7.5h.01"/></svg>
@@ -90,7 +90,7 @@
 
             <div class="metric-row" aria-label="Current network metrics">
               <div><small>Protocol</small><strong id="protocolMetric">—</strong></div>
-              <div><small>Distance</small><strong id="distanceMetric">0 km</strong></div>
+              <div><small>Mapped distance</small><strong id="distanceMetric">0 km</strong></div>
               <div><small>Elapsed</small><strong id="timeMetric">0 ms</strong></div>
             </div>
 
@@ -198,23 +198,6 @@
         </div>
       </section>
 
-      <section class="learn-section" id="learn" aria-labelledby="learn-title">
-        <div class="section-intro">
-          <span class="eyebrow">Under the surface</span>
-          <h2 id="learn-title">One search. Many systems.</h2>
-          <p>The internet is not a cloud. It is routers, data centers, radio, glass fiber, and carefully coordinated rules.</p>
-        </div>
-        <div class="learn-grid">
-          <article><span class="card-number">01</span><div class="line-icon wifi" aria-hidden="true"></div><h3>Local network</h3><p>Wi‑Fi turns frames into radio waves. Your router forwards them to your internet provider.</p><ul><li>ARP finds the gateway</li><li>Wi‑Fi protects the local frame</li><li>NAT may replace the private IP</li></ul><button class="learn-more" data-topic="local" type="button">Explore local network <span>→</span></button></article>
-          <article><span class="card-number">02</span><div class="line-icon dns" aria-hidden="true"></div><h3>DNS & routing</h3><p>DNS translates names into IP addresses. Routers then choose the next useful hop—not one fixed path.</p><ul><li>Cache is checked first</li><li>TTL controls reuse time</li><li>BGP connects networks</li></ul><button class="learn-more" data-topic="dns" type="button">Explore DNS & routing <span>→</span></button></article>
-          <article><span class="card-number">03</span><div class="line-icon cable" aria-hidden="true"></div><h3>Across the ocean</h3><p>Lasers carry data through hair-thin glass fibers protected inside cables laid along the seabed.</p><ul><li>Cable ships survey the route</li><li>Repeaters restore the signal</li><li>Shore ends are buried and armored</li></ul><button class="learn-more" data-topic="cable" type="button">Explore subsea cables <span>→</span></button></article>
-          <article><span class="card-number">04</span><div class="line-icon server" aria-hidden="true"></div><h3>Server & return</h3><p>An edge or origin server processes the request. TCP checks delivery, then your browser rebuilds the response.</p><ul><li>CDNs cache nearby copies</li><li>TCP orders and retries data</li><li>The return path may differ</li></ul><button class="learn-more" data-topic="server" type="button">Explore the return trip <span>→</span></button></article>
-        </div>
-        <div class="truth-note">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4M12 16h.01"/></svg>
-          <p><strong>What this can—and cannot—show.</strong> Live mode plots responding public routers only when their approximate IP locations are compatible with measured latency. Impossible coordinates are withheld, private or silent hops remain unknown, traceroute cannot identify the exact submarine cable, and the real return route may differ.</p>
-        </div>
-      </section>
     </main>
 
     <footer><span>Packet Atlas</span><p>Built to make invisible infrastructure visible.</p><a href="#top">Back to top ↑</a></footer>

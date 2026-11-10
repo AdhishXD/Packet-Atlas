@@ -100,6 +100,39 @@ function routePointsForStage(stage){
   return[places[stage.from],...(stage.via||[]),places[stage.to]].filter(Boolean);
 }
 
+function routeDistanceKm(points){
+  let distance=0;
+  for(let index=0;index<points.length-1;index++){
+    distance+=d3.geoDistance([points[index].lon,points[index].lat],[points[index+1].lon,points[index+1].lat])*6371.0088;
+  }
+  return distance;
+}
+
+function formatDistance(km){
+  if(!Number.isFinite(km)||km<=0)return'0 km';
+  return`≈ ${Math.round(km).toLocaleString()} km`;
+}
+
+function addMappedDistances(journey,targetStage){
+  let cumulative=0;
+  let outbound=0;
+  let includesInferredSpan=false;
+  journey.forEach(stage=>{
+    const points=routePointsForStage(stage);
+    if(points.length>1){
+      cumulative+=routeDistanceKm(points);
+      if(stage.inferred)includesInferredSpan=true;
+    }
+    stage.distanceKm=cumulative;
+    stage.distance=formatDistance(cumulative);
+    if(stage===targetStage)outbound=cumulative;
+  });
+  journey.outboundDistanceKm=outbound;
+  journey.totalMappedDistanceKm=cumulative;
+  journey.includesInferredSpan=includesInferredSpan;
+  return journey;
+}
+
 function routePointAt(points,progress){
   if(points.length<2)return points[0]||{lon:0,lat:0};
   const distances=[];let total=0;
@@ -268,9 +301,9 @@ function buildLiveStages(trace) {
     return {
       kicker: hop.ip === trace.targetIp ? 'Destination reached' : hop.ip ? `Measured router · hop ${hop.hop}` : `No reply · hop ${hop.hop}`,
       title: hop.ip === trace.targetIp ? `Reached ${trace.targetHost}` : label,
-      description: `${hop.ip || 'No public IP returned'}${hop.hostname && hop.hostname !== hop.ip ? ` · ${hop.hostname}` : ''}${hop.isp ? ` · ${hop.isp}` : ''}. ${hasLocation ? confidence : hop.ip ? (hop.locationReason || 'This hop’s physical location could not be resolved, so the globe does not invent a position.') : 'This router did not answer traceroute, so its identity and position remain unknown.'}`,
+      description: `${hop.ip || 'No public IP returned'}${hop.hostname && hop.hostname !== hop.ip ? ` · ${hop.hostname}` : ''}${hop.isp ? ` · ${hop.isp}` : ''}. ${hasLocation ? confidence : hop.ip ? (hop.locationReason || 'This hop’s physical location could not be resolved, so the globe does not invent a position.') : 'This router did not answer traceroute, so its identity and position remain unknown.'}${hop.rttMs==null?'':` Measured round-trip time: ${hop.rttMs.toFixed(1)} ms.`}`,
       protocol: hop.ip || 'Silent hop',
-      distance: hop.rttMs == null ? 'No RTT' : `${hop.rttMs.toFixed(1)} ms RTT`,
+      distance: '0 km',
       layers: [3,2,1],
       duration: 1750,
       ...position,
@@ -292,7 +325,7 @@ function buildLiveStages(trace) {
     : targetEstimateUsable
       ? { kicker:'Traceroute filtered', title:'The destination stops answering route probes', description:filteredTargetDescription, protocol:Number.isFinite(trace.tcpRttMs)?'TCP 443':'UDP filtered', distance:targetSharesLastRegion?'Same approximate region':'Unobserved gap', layers:[4,3,2,1], duration:2400, ...(targetSharesLastRegion?{at:'traceTarget'}:{from:lastKey,to:'traceTarget',inferred:true}) }
       : { kicker:'Traceroute filtered', title:'The remaining route is unknown', description:`${trace.targetHost} did not answer UDP traceroute and its physical location could not be verified. Packet Atlas stops at the last responding router instead of inventing the missing path.`, protocol:'UDP filtered', distance:'Unknown', layers:[3,2,1], duration:2400, at:lastKey };
-  return [
+  const journey = [
     { ...learningStages[0], title:'Your question becomes an HTTPS request', at:originKey },
     { ...learningStages[1], at:originKey },
     ...networkStages,
@@ -305,6 +338,7 @@ function buildLiveStages(trace) {
     { ...learningStages[2], at:firstKey, description:`The visible return animation is a teaching model from ${places[visibleEndKey]?.name || 'the last known endpoint'}; the real return route can differ and may include hidden routers.` },
     { ...learningStages[3], at:firstKey }
   ];
+  return addMappedDistances(journey,targetStage);
 }
 
 async function loadLiveTrace(targetHost) {
@@ -325,7 +359,9 @@ async function loadLiveTrace(targetHost) {
     stages = buildLiveStages(trace);
     const rejected=trace.hops.filter(hop=>hop.locationConfidence==='inconsistent').length;
     $('#routeMode').textContent='Measured hops · checked locations';
-    $('#routeScope').textContent=`${trace.respondingHops} responding hops · ${trace.source?.locationLabel || 'site server'} → ${trace.targetHost} · ${trace.reachedTarget?'destination answered traceroute':'destination filtered traceroute'}${rejected?` · ${rejected} impossible location${rejected===1?'':'s'} hidden`:''}`;
+    const mappedDistance=formatDistance(stages.outboundDistanceKm);
+    const distanceQualifier=stages.includesInferredSpan?'great-circle lower bound':'great-circle sum';
+    $('#routeScope').textContent=`${trace.respondingHops} responding hops · ${trace.source?.locationLabel || 'site server'} → ${trace.targetHost} · ${mappedDistance} outbound ${distanceQualifier} · ${trace.reachedTarget?'destination answered traceroute':'destination filtered traceroute'}${rejected?` · ${rejected} impossible location${rejected===1?'':'s'} hidden`:''}`;
     return true;
   } catch (error) {
     const origin=places.traceOrigin?'traceOrigin':null;
