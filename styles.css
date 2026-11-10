@@ -75,6 +75,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .suggestions { margin-top:1rem; display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:.5rem; font-size:.77rem; color:var(--quiet); }
 .suggestions button { padding:.35rem .65rem; color:var(--muted); border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.035); cursor:pointer; }
 .suggestions button:hover { color:var(--text); border-color:var(--line-strong); }
+.runtime-notice { max-width:50rem;margin:1rem auto 0;padding:.9rem 1rem;display:flex;align-items:center;justify-content:center;gap:.65rem 1rem;flex-wrap:wrap;color:var(--muted);border:1px solid rgba(255,184,107,.3);border-radius:.9rem;background:rgba(255,184,107,.07);font-size:.72rem;text-align:left; }
+.runtime-notice[hidden] { display:none; }.runtime-notice strong { color:var(--orange); }.runtime-notice code { padding:.15rem .3rem;color:var(--text);border-radius:.3rem;background:rgba(0,0,0,.24); }.runtime-notice a { color:var(--cyan); }
 
 .simulator-wrap { width:min(1240px, calc(100% - 2rem)); margin:0 auto; scroll-margin-top:6rem; }
 .simulator { position:relative; display:grid; grid-template-columns:minmax(0,1.65fr) minmax(20rem,.75fr); min-height:46rem; overflow:hidden; overflow-anchor:none; contain:layout paint; border:1px solid rgba(255,255,255,.13); border-radius:var(--radius-xl); background:#07121e; box-shadow:var(--shadow), inset 0 1px rgba(255,255,255,.06); }

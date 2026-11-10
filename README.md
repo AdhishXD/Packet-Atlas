@@ -16,6 +16,8 @@ npm start
 
 Then open `http://localhost:4173`.
 
+On macOS, you can also double-click `start-packet-atlas.command`; it starts the server and opens the correct URL for you.
+
 Do not open `index.html` directly with a `file://` URL when testing live routes. Browsers cannot run the included traceroute API; the Node server must be running.
 
 ## Deploy

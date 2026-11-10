@@ -35,7 +35,7 @@ const restartButton = $('#restartButton');
 const speedSelect = $('#speedSelect');
 const layerItems = [...document.querySelectorAll('.layer-stack li')];
 const labLayerButtons = [...document.querySelectorAll('[data-lab-layer]')];
-let worldGeo = null;
+let worldGeo = window.PACKET_ATLAS_WORLD || null;
 let lessonQuery = 'How does DNS work?';
 let lessonTargetHost = 'search.example';
 let lessonTargetIp = '203.0.113.10';
@@ -44,10 +44,19 @@ let lessonBytes = new TextEncoder().encode(lessonQuery);
 let lessonCipher = new Uint8Array([0x8f,0x29,0xa4,0x71,0x0c,0xe3,0xb8,0x55]);
 let labPinned = false;
 
-fetch('data/countries-110m.geojson')
-  .then(response => response.ok ? response.json() : Promise.reject(new Error('World geometry unavailable')))
-  .then(data => { worldGeo = data; })
-  .catch(() => { worldGeo = null; });
+if(!worldGeo){
+  fetch('data/countries-110m.geojson')
+    .then(response => response.ok ? response.json() : Promise.reject(new Error('World geometry unavailable')))
+    .then(data => { worldGeo = data; })
+    .catch(() => { worldGeo = null; });
+}
+
+if(location.protocol==='file:'){
+  $('#runtimeNotice').hidden=false;
+  $('#routeMode').textContent='Local server required';
+  $('#routeScope').textContent='The globe works offline; live hops and distance need npm start';
+  $('#originLabel strong').textContent='Open http://localhost:4173';
+}
 
 const places = {};
 let livePlaceKeys = [];
@@ -130,6 +139,14 @@ function addMappedDistances(journey,targetStage){
   journey.outboundDistanceKm=outbound;
   journey.totalMappedDistanceKm=cumulative;
   journey.includesInferredSpan=includesInferredSpan;
+  if(outbound>0){
+    journey.forEach(stage=>{
+      if(stage.distanceKm<=outbound){
+        const travelled=stage.distanceKm>0?formatDistance(stage.distanceKm):'0 km';
+        stage.distance=`${travelled} / ${formatDistance(outbound)}`;
+      }
+    });
+  }
   return journey;
 }
 

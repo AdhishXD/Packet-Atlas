@@ -54,6 +54,10 @@
           <button type="button" data-query="How do undersea internet cables work?" data-target="speedtest.singapore.linode.com">Singapore · Linode test</button>
           <button type="button" data-query="What is the OSI model?" data-target="www.iij.ad.jp">Japan · IIJ</button>
         </div>
+        <div class="runtime-notice" id="runtimeNotice" role="status" hidden>
+          <strong>Live tracing needs the local server.</strong>
+          <span>Double-click <code>start-packet-atlas.command</code>, or run <code>npm start</code> and open <a href="http://localhost:4173">localhost:4173</a>.</span>
+        </div>
       </section>
 
       <section class="simulator-wrap" id="simulator" aria-labelledby="simulator-title">
@@ -90,7 +94,7 @@
 
             <div class="metric-row" aria-label="Current network metrics">
               <div><small>Protocol</small><strong id="protocolMetric">—</strong></div>
-              <div><small>Mapped distance</small><strong id="distanceMetric">0 km</strong></div>
+              <div><small>Mapped distance</small><strong id="distanceMetric">Not traced</strong></div>
               <div><small>Elapsed</small><strong id="timeMetric">0 ms</strong></div>
             </div>
 
@@ -211,6 +215,7 @@
       <div class="sheet-fact"><span>Private by design</span><strong>No query leaves this page</strong></div>
     </aside>
 
+    <script src="data/countries-110m.js"></script>
     <script src="config.js"></script>
     <script src="node_modules/d3/dist/d3.min.js"></script>
     <script src="app.js"></script>

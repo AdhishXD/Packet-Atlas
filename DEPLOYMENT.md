@@ -16,6 +16,8 @@ GitHub Pages cannot run `server.mjs`, shell commands, or `traceroute`. A Pages-o
 
 The workflow installs D3, assembles only the public frontend files in `_site`, and deploys that directory.
 
+The repository must have Pages enabled before `actions/configure-pages` runs. A `Get Pages site: Not Found` error means step 3 has not been completed yet; it is a repository setting, not a website build error.
+
 ## Keep live Trace search working
 
 Deploy the Node server to a host that supports long-running Node processes and the system `traceroute` command. A small VPS is the most predictable option; some serverless and managed hosts block raw network probes.
