@@ -2,6 +2,28 @@ const canvas = document.querySelector('#globeCanvas');
 const ctx = canvas.getContext('2d');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+function restoreViewport(top) {
+  const root = document.documentElement;
+  const previousBehavior = root.style.scrollBehavior;
+  root.style.scrollBehavior = 'auto';
+  scrollTo(0, top);
+  root.style.scrollBehavior = previousBehavior;
+}
+function resetInitialScroll() {
+  if (!location.hash) restoreViewport(0);
+}
+window.addEventListener('pageshow', resetInitialScroll);
+requestAnimationFrame(resetInitialScroll);
+
+// Buttons update the current view; they never act as navigation. Keep their
+// effects anchored to the exact viewport position where the interaction began.
+document.addEventListener('click', event => {
+  if (!(event.target instanceof Element) || !event.target.closest('button')) return;
+  const top = scrollY;
+  requestAnimationFrame(() => requestAnimationFrame(() => restoreViewport(top)));
+}, true);
+
 const $ = (selector) => document.querySelector(selector);
 const searchForm = $('#searchForm');
 const queryInput = $('#queryInput');
@@ -331,7 +353,7 @@ async function preparePacketLesson(query){
   selectLabLayer(selected,false);
 }
 
-function selectLabLayer(layer,scroll=true){
+function selectLabLayer(layer){
   const lesson=layerLessons[layer];if(!lesson)return;
   labLayerButtons.forEach(button=>button.setAttribute('aria-selected',String(Number(button.dataset.labLayer)===layer)));
   $('#labStepLabel').textContent=`Layer ${layer} of 7`;
@@ -342,7 +364,6 @@ function selectLabLayer(layer,scroll=true){
   lesson.parts.forEach(([label,className],index)=>{const part=document.createElement('span');part.className=`packet-part ${className}`;part.textContent=label;part.style.animationDelay=`${index*.055}s`;anatomy.append(part);});
   $('#signalVisual').classList.toggle('visible',layer===1);
   $('#labPrevious').disabled=layer===7;$('#labNext').disabled=layer===1;$('#labNext').innerHTML=layer===1?'At the wire':'Next layer <span>→</span>';
-  if(scroll) $('#packet-lab').scrollIntoView({behavior:reducedMotion?'auto':'smooth',block:'center'});
 }
 
 function totalDuration() { return stages.reduce((sum,s)=>sum+s.duration,0); }
@@ -393,7 +414,6 @@ async function startJourney(query, targetHost, restart=false) {
   playButton.classList.add('playing');playButton.setAttribute('aria-label','Pause simulation');
   $('#answerSection').hidden=true;
   updateStageUI();
-  if(!restart) $('#simulator').scrollIntoView({behavior:reducedMotion?'auto':'smooth',block:'center'});
 }
 
 function finishJourney(){
@@ -415,7 +435,7 @@ function answerFor(query){
   return `A real search service would now return results for “${query}”. This study prototype keeps the text in your browser and visualizes the network journey instead of contacting a search server.`;
 }
 
-searchForm.addEventListener('submit',(event)=>{event.preventDefault();const query=queryInput.value.trim(),target=targetInput.value.trim();if(!query){queryInput.focus();return;}if(!target){targetInput.focus();return;}startJourney(query,target);});
+searchForm.addEventListener('submit',(event)=>{event.preventDefault();const query=queryInput.value.trim(),target=targetInput.value.trim();if(!query){queryInput.focus({preventScroll:true});return;}if(!target){targetInput.focus({preventScroll:true});return;}startJourney(query,target);});
 document.querySelectorAll('[data-query]').forEach(button=>button.addEventListener('click',()=>{queryInput.value=button.dataset.query;targetInput.value=button.dataset.target;startJourney(button.dataset.query,button.dataset.target);}));
 playButton.addEventListener('click',()=>{
   if(state.complete||!state.running){startJourney(queryInput.value.trim()||state.query,targetInput.value.trim(),true);return;}
@@ -424,14 +444,14 @@ playButton.addEventListener('click',()=>{
 });
 restartButton.addEventListener('click',()=>startJourney(queryInput.value.trim()||state.query,targetInput.value.trim(),true));
 speedSelect.addEventListener('change',()=>{const old=state.speed;const elapsed=performance.now()-state.stageStart;state.speed=Number(speedSelect.value);state.stageStart=performance.now()-(elapsed*old/state.speed);});
-$('#traceAgain').addEventListener('click',()=>{queryInput.value='';queryInput.focus();scrollTo({top:queryInput.getBoundingClientRect().top+scrollY-160,behavior:reducedMotion?'auto':'smooth'});});
+$('#traceAgain').addEventListener('click',()=>{queryInput.value='';queryInput.focus({preventScroll:true});});
 
 function openSheet(title,body){
   $('#sheetTitle').textContent=title;$('#sheetBody').textContent=body;$('#sheetScrim').hidden=false;$('#aboutPanel').hidden=false;$('#infoButton').setAttribute('aria-expanded','true');
   if(!reducedMotion) $('#aboutPanel').animate([{opacity:0,transform:'translate(-50%,-47%) scale(.97)',filter:'blur(8px)'},{opacity:1,transform:'translate(-50%,-50%) scale(1)',filter:'blur(0)'}],{duration:350,easing:'cubic-bezier(.2,.8,.2,1)'});
-  $('#closeSheet').focus();
+  $('#closeSheet').focus({preventScroll:true});
 }
-function closeSheet(){ $('#sheetScrim').hidden=true;$('#aboutPanel').hidden=true;$('#infoButton').setAttribute('aria-expanded','false');$('#infoButton').focus(); }
+function closeSheet(){ $('#sheetScrim').hidden=true;$('#aboutPanel').hidden=true;$('#infoButton').setAttribute('aria-expanded','false');$('#infoButton').focus({preventScroll:true}); }
 $('#infoButton').addEventListener('click',()=>openSheet('A model, not a packet capture','Packet Atlas keeps every query in your browser. It animates a representative journey so you can study encapsulation, addressing, routing, physical media, server processing, and decapsulation without collecting traffic.'));
 $('#closeSheet').addEventListener('click',closeSheet);$('#sheetScrim').addEventListener('click',closeSheet);
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('#aboutPanel').hidden)closeSheet();});
