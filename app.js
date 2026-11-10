@@ -5,6 +5,7 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = (selector) => document.querySelector(selector);
 const searchForm = $('#searchForm');
 const queryInput = $('#queryInput');
+const targetInput = $('#targetInput');
 const playButton = $('#playButton');
 const restartButton = $('#restartButton');
 const speedSelect = $('#speedSelect');
@@ -21,32 +22,14 @@ fetch('/data/countries-110m.geojson')
   .then(data => { worldGeo = data; })
   .catch(() => { worldGeo = null; });
 
-const places = {
-  chennai: { name: 'Your device · Chennai', lat: 13.08, lon: 80.27, type: 'device' },
-  mumbai: { name: 'ISP gateway · Mumbai', lat: 19.08, lon: 72.88, type: 'router' },
-  singapore: { name: 'DNS resolver · Singapore', lat: 1.35, lon: 103.82, type: 'dns' },
-  tokyo: { name: 'Edge server · Tokyo', lat: 35.68, lon: 139.65, type: 'edge' },
-  sf: { name: 'Origin server · California', lat: 37.77, lon: -122.42, type: 'server' },
-  cableChennai: { name:'Chennai cable landing · India',lat:13.08,lon:80.3,type:'landing',modeled:true },
-  cableSingapore: { name:'Singapore cable landing',lat:1.29,lon:103.85,type:'landing',modeled:true },
-  cableGuam: { name:'Guam cable landing',lat:13.44,lon:144.79,type:'landing',modeled:true },
-  cableHawaii: { name:'Hawaiʻi cable landing',lat:21.31,lon:-157.86,type:'landing',modeled:true }
-};
+const places = {};
+let livePlaceKeys = [];
 
 const learningStages = [
-  { kicker:'Layer 7 · Application', title:'Your question becomes data', description:'The browser turns your text into an HTTPS request and asks DNS where the service lives.', protocol:'HTTPS · DNS', distance:'0 km', layers:[7], duration:2100, at:'chennai' },
-  { kicker:'Layers 6 → 1 · Encapsulation', title:'Seven layers add context', description:'TLS protects the message, TCP numbers it, IP addresses it, Wi‑Fi frames it, and radio carries the bits.', protocol:'TLS · TCP · IP', distance:'0 km', layers:[6,5,4,3,2,1], duration:3200, at:'chennai', cascade:'down' },
-  { kicker:'Local network → ISP', title:'Leaving your device', description:'Your router forwards the packet to your provider. Each router reads the destination IP and chooses a next hop.', protocol:'Wi‑Fi · IP', distance:'1,032 km', layers:[2,3], duration:2500, from:'chennai', to:'mumbai' },
-  { kicker:'Name resolution', title:'Finding the server address', description:'A recursive DNS resolver follows cached records or asks the DNS hierarchy, then returns an IP address.', protocol:'DNS · UDP', distance:'4,210 km', layers:[7,4,3], duration:2600, from:'mumbai', to:'singapore' },
-  { kicker:'Physical infrastructure', title:'Light crosses the ocean', description:'At a cable landing station, electrical signals become pulses of light inside protected glass fiber on the seabed.', protocol:'Fiber · IP', distance:'5,310 km', layers:[3,2,1], duration:3200, from:'singapore', to:'tokyo', cable:true },
-  { kicker:'Content delivery network', title:'An edge server receives it', description:'A nearby edge can answer from cache. If it cannot, it securely forwards the request toward the origin.', protocol:'TLS · TCP', distance:'5,310 km', layers:[7,6,5,4], duration:2300, at:'tokyo' },
-  { kicker:'Long-haul backbone', title:'Forwarded to the origin', description:'Routers hand the packet between networks. The path follows policy and availability, not simply the shortest line.', protocol:'BGP · IP', distance:'13,590 km', layers:[3,2,1], duration:3300, from:'tokyo', to:'sf', cable:true },
-  { kicker:'Server processing', title:'The server prepares a response', description:'Application code processes the request and sends response data back in ordered TCP segments.', protocol:'HTTP/2 · TCP', distance:'13,590 km', layers:[7,4], duration:2400, at:'sf' },
-  { kicker:'Return path', title:'The answer starts home', description:'The response can take a different route. TCP acknowledges delivered data and retransmits anything missing.', protocol:'TCP · IP', distance:'21,870 km', layers:[4,3,2,1], duration:3100, from:'sf', to:'tokyo', response:true, cable:true },
-  { kicker:'Edge → resolver region', title:'Back across the backbone', description:'Packets move independently through high-capacity links, often sharing fiber with millions of other flows.', protocol:'IP · Fiber', distance:'27,180 km', layers:[3,2,1], duration:2800, from:'tokyo', to:'singapore', response:true, cable:true },
-  { kicker:'ISP → local network', title:'Your provider routes it home', description:'The destination address guides the response to your router, which delivers frames to your device.', protocol:'IP · Wi‑Fi', distance:'32,422 km', layers:[3,2], duration:2700, from:'singapore', to:'chennai', response:true },
-  { kicker:'Layers 1 → 7 · Decapsulation', title:'Your browser rebuilds the answer', description:'Headers are checked and removed in reverse. TLS decrypts the content and the application renders the result.', protocol:'TCP · TLS · HTTP', distance:'32,422 km', layers:[1,2,3,4,5,6,7], duration:3200, at:'chennai', cascade:'up', response:true },
-  { kicker:'Journey complete', title:'The invisible trip is complete', description:'The whole exchange can finish in a fraction of a second—this version slows it down so every system stays visible.', protocol:'Response ready', distance:'32,422 km', layers:[7], duration:1600, at:'chennai', response:true, complete:true }
+  { kicker:'Layer 7 · Application', title:'Your question becomes data', description:'The browser turns your text into an HTTPS request and asks DNS where the chosen destination lives.', protocol:'HTTPS · DNS', distance:'0 km', layers:[7], duration:2100 },
+  { kicker:'Layers 6 → 1 · Encapsulation', title:'Seven layers add context', description:'TLS protects the message, TCP numbers it, IP addresses it, Wi‑Fi frames it, and physical media carry the bits.', protocol:'TLS · TCP · IP', distance:'0 km', layers:[6,5,4,3,2,1], duration:3200, cascade:'down' },
+  { kicker:'Layers 1 → 7 · Decapsulation', title:'Your browser rebuilds the answer', description:'Headers are checked and removed in reverse. TLS decrypts the content and the application renders the result.', protocol:'TCP · TLS · HTTP', distance:'Measured route', layers:[1,2,3,4,5,6,7], duration:3200, cascade:'up', response:true },
+  { kicker:'Journey complete', title:'The invisible trip is complete', description:'The exchange can finish in a fraction of a second—this version slows it down so every system stays visible.', protocol:'Response ready', distance:'Measured route', layers:[7], duration:1600, response:true, complete:true }
 ];
 let stages = learningStages;
 
@@ -208,19 +191,11 @@ function updateStageUI() {
   if(stage.layers?.length&&!labPinned) selectLabLayer(stage.layers[0],false);
 }
 
-function modeledCableWaypoints(from,to){
-  if(!from||!to)return[];
-  const crossesPacific=(from.lon>55&&from.lon<150&&to.lon<-70)||(to.lon>55&&to.lon<150&&from.lon<-70);
-  if(!crossesPacific)return[];
-  const eastbound=from.lon>55&&from.lon<150;
-  const points=[places.cableChennai,places.cableSingapore,places.cableGuam,places.cableHawaii];
-  return eastbound?points:points.slice().reverse();
-}
-
 function buildLiveStages(trace) {
   const measured = trace.hops;
   const responding = measured.filter(hop => hop.ip);
   const newPlaces = {};
+  livePlaceKeys.forEach(key => delete places[key]);
   if (Number.isFinite(trace.source?.latitude) && Number.isFinite(trace.source?.longitude)) {
     newPlaces.traceOrigin = {
       name:`Site server · ${trace.source.locationLabel}`,
@@ -237,6 +212,7 @@ function buildLiveStages(trace) {
       ip: hop.ip
     };
   });
+  livePlaceKeys = Object.keys(newPlaces);
   Object.assign(places, newPlaces);
 
   const locatedKeys = measured.filter(hop => Number.isFinite(hop.latitude) && Number.isFinite(hop.longitude)).map(hop => `hop${hop.hop}`);
@@ -251,12 +227,13 @@ function buildLiveStages(trace) {
     const position = hasLocation
       ? (previousLocatedKey ? { from:previousLocatedKey, to:key } : { at:key })
       : { at:previousLocatedKey || originKey };
-    const cable=Boolean(previousLocatedKey&&hasLocation&&Math.abs(newPlaces[previousLocatedKey].lon-newPlaces[key].lon)>18);
-    const via=cable?modeledCableWaypoints(newPlaces[previousLocatedKey],newPlaces[key]):[];
+    const cable=false;
+    const via=[];
+    const confidence = hop.locationConfidence === 'plausible' ? 'Latency-compatible approximate location.' : hop.locationConfidence === 'inconsistent' ? hop.locationReason : 'Approximate IP registration location; latency verification was unavailable.';
     return {
       kicker: index === measured.length - 1 ? 'Destination reached' : `Measured router · hop ${hop.hop}`,
       title: hop.ip === trace.targetIp ? `Reached ${trace.targetHost}` : label,
-      description: `${hop.ip || 'No public IP returned'}${hop.hostname && hop.hostname !== hop.ip ? ` · ${hop.hostname}` : ''}${hop.isp ? ` · ${hop.isp}` : ''}. ${hasLocation ? 'Position is estimated from the hop’s public IP registration.' : hop.ip ? 'This hop is private or its physical location could not be resolved, so the globe does not invent a position.' : 'This router did not answer traceroute, so its identity and position remain unknown.'}${via.length?' The ocean portion follows a clearly labeled landing-station study model because traceroute cannot identify the exact cable.':''}`,
+      description: `${hop.ip || 'No public IP returned'}${hop.hostname && hop.hostname !== hop.ip ? ` · ${hop.hostname}` : ''}${hop.isp ? ` · ${hop.isp}` : ''}. ${hasLocation ? confidence : hop.ip ? (hop.locationReason || 'This hop’s physical location could not be resolved, so the globe does not invent a position.') : 'This router did not answer traceroute, so its identity and position remain unknown.'}`,
       protocol: hop.ip || 'Silent hop',
       distance: hop.rttMs == null ? 'No RTT' : `${hop.rttMs.toFixed(1)} ms RTT`,
       layers: [3,2,1],
@@ -273,32 +250,39 @@ function buildLiveStages(trace) {
     { ...learningStages[0], title:'Your question becomes an HTTPS request', at:originKey },
     { ...learningStages[1], at:originKey },
     ...networkStages,
-    { kicker:'Server processing', title:'The search service prepares a response', description:`The measured destination at ${places[lastKey]?.name || trace.targetHost} accepts the request. Application processing happens above the network path we can trace.`, protocol:'HTTPS', distance:`${responding.length} responding hops`, layers:[7,6,5,4], duration:2100, at:lastKey },
+    { kicker:'Destination IP reached', title:`${trace.targetHost} receives the request`, description:`Traceroute resolved ${trace.targetHost} to ${trace.targetIp}. The marker is the last latency-compatible location, not a claim about the server building. Application processing happens above the network path traceroute can observe.`, protocol:'HTTPS', distance:`${responding.length} responding hops`, layers:[7,6,5,4], duration:2100, at:lastKey },
     ...networkStages.slice().reverse().map((stage,index) => {
       const reversePosition=stage.from&&stage.to?{from:stage.to,to:stage.from,via:[...(stage.via||[])].reverse()}:{at:stage.at||firstKey};
       return { ...stage, ...reversePosition, kicker:stage.cable?'Return path model · subsea fiber':`Return path model · step ${index+1}`, title:index===networkStages.length-1?'Returning to the site server':stage.title, description:`Response traffic returns toward the requester. Standard traceroute observes only the outbound direction, so this return path is a model and may differ from the real network.`, response:true };
     }),
-    { ...learningStages[11], at:firstKey },
-    { ...learningStages[12], at:firstKey }
+    { ...learningStages[2], at:firstKey },
+    { ...learningStages[3], at:firstKey }
   ];
 }
 
-async function loadLiveTrace() {
+async function loadLiveTrace(targetHost) {
   $('#routeMode').textContent='Measuring live hops…';
   $('#routeScope').textContent='Waiting for responding routers';
   try {
-    const response = await fetch('/api/trace', { headers:{ Accept:'application/json' } });
-    if (!response.ok) throw new Error(`Trace returned ${response.status}`);
+    const response = await fetch(`/api/trace?target=${encodeURIComponent(targetHost)}`, { headers:{ Accept:'application/json' } });
+    if (!response.ok) { const problem=await response.json().catch(()=>({})); throw new Error(problem.detail || `Trace returned ${response.status}`); }
     const trace = await response.json();
     if (!trace.hops?.some(hop => hop.ip)) throw new Error('No responding hops');
     stages = buildLiveStages(trace);
-    $('#routeMode').textContent='Measured hops + cable model';
-    $('#routeScope').textContent=`${trace.respondingHops} responding hops · ${trace.source?.locationLabel || 'site server'} → ${trace.targetHost} · landing path is modeled`;
+    const rejected=trace.hops.filter(hop=>hop.locationConfidence==='inconsistent').length;
+    $('#routeMode').textContent='Measured hops · checked locations';
+    $('#routeScope').textContent=`${trace.respondingHops} responding hops · ${trace.source?.locationLabel || 'site server'} → ${trace.targetHost}${rejected?` · ${rejected} impossible location${rejected===1?'':'s'} hidden`:''}`;
     return true;
   } catch (error) {
-    stages = learningStages;
-    $('#routeMode').textContent='Learning route fallback';
-    $('#routeScope').textContent='Live traceroute unavailable · illustrative route shown clearly';
+    const origin=places.traceOrigin?'traceOrigin':null;
+    stages = [
+      { ...learningStages[0], at:origin, title:'Your question becomes an HTTPS request' },
+      { ...learningStages[1], at:origin },
+      { kicker:'Trace unavailable', title:'No physical route was invented', description:`${error.message}. Packet Atlas will not substitute a predefined country or cable path.`, protocol:'No live route', distance:'Unknown', layers:[3], duration:2200, at:origin },
+      { ...learningStages[3], at:origin }
+    ];
+    $('#routeMode').textContent='Trace unavailable';
+    $('#routeScope').textContent=error.message;
     return false;
   }
 }
@@ -380,11 +364,11 @@ function animate(now) {
   requestAnimationFrame(animate);
 }
 
-async function startJourney(query, restart=false) {
+async function startJourney(query, targetHost, restart=false) {
   state.query=query || state.query || 'How does a search travel?';
   labPinned=false;
   preparePacketLesson(state.query);
-  if (!restart) await loadLiveTrace();
+  if (!restart) await loadLiveTrace(targetHost);
   state.running=true;state.paused=false;state.complete=false;state.stage=0;state.progress=0;state.elapsed=0;state.stageStart=performance.now();state.centerLon=98;state.centerLat=18;state.targetLon=98;state.targetLat=18;state.cameraVelocityLon=0;state.cameraVelocityLat=0;
   playButton.classList.add('playing');playButton.setAttribute('aria-label','Pause simulation');
   $('#answerSection').hidden=true;
@@ -411,14 +395,14 @@ function answerFor(query){
   return `A real search service would now return results for “${query}”. This study prototype keeps the text in your browser and visualizes the network journey instead of contacting a search server.`;
 }
 
-searchForm.addEventListener('submit',(event)=>{event.preventDefault();const query=queryInput.value.trim();if(!query){queryInput.focus();return;}startJourney(query);});
-document.querySelectorAll('[data-query]').forEach(button=>button.addEventListener('click',()=>{queryInput.value=button.dataset.query;startJourney(button.dataset.query);}));
+searchForm.addEventListener('submit',(event)=>{event.preventDefault();const query=queryInput.value.trim(),target=targetInput.value.trim();if(!query){queryInput.focus();return;}if(!target){targetInput.focus();return;}startJourney(query,target);});
+document.querySelectorAll('[data-query]').forEach(button=>button.addEventListener('click',()=>{queryInput.value=button.dataset.query;targetInput.value=button.dataset.target;startJourney(button.dataset.query,button.dataset.target);}));
 playButton.addEventListener('click',()=>{
-  if(state.complete||!state.running){startJourney(queryInput.value.trim()||state.query,true);return;}
+  if(state.complete||!state.running){startJourney(queryInput.value.trim()||state.query,targetInput.value.trim(),true);return;}
   if(state.paused){state.paused=false;state.stageStart=performance.now()-state.pausedAt/state.speed;playButton.classList.add('playing');playButton.setAttribute('aria-label','Pause simulation');}
   else{state.paused=true;state.pausedAt=state.progress*stages[state.stage].duration;playButton.classList.remove('playing');playButton.setAttribute('aria-label','Resume simulation');$('#timelineStatus').textContent='Paused';}
 });
-restartButton.addEventListener('click',()=>startJourney(queryInput.value.trim()||state.query,true));
+restartButton.addEventListener('click',()=>startJourney(queryInput.value.trim()||state.query,targetInput.value.trim(),true));
 speedSelect.addEventListener('change',()=>{const old=state.speed;const elapsed=performance.now()-state.stageStart;state.speed=Number(speedSelect.value);state.stageStart=performance.now()-(elapsed*old/state.speed);});
 $('#traceAgain').addEventListener('click',()=>{queryInput.value='';queryInput.focus();scrollTo({top:queryInput.getBoundingClientRect().top+scrollY-160,behavior:reducedMotion?'auto':'smooth'});});
 

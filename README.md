@@ -16,13 +16,13 @@ Then open `http://localhost:4173`.
 
 ## Important scope
 
-The app attempts a real traceroute from the website's server to `www.google.com` (configurable with `TRACE_TARGET`). Every responding public hop is geolocated and plotted. A browser cannot expose the user's intermediate routers, standard traceroute only measures one direction, some routers do not respond, private hops have no public location, and IP geolocation is approximate. The UI states these limitations and falls back to a clearly labeled learning route if tracing is unavailable.
+Every search supplies its own public destination hostname. The server resolves that hostname, runs a fresh traceroute, and geolocates responding public hops. Each estimated coordinate is checked against the measured RTT; a location that is physically impossible is explained but not plotted. A browser cannot expose the user's intermediate routers, standard traceroute measures only one direction, some routers do not respond, and private hops have no public location. If tracing fails, the UI does not invent a replacement route.
 
 The items between endpoints are usually routers, not application servers. Packet Atlas uses the correct node type in its copy and never manufactures a coordinate for a silent or private hop.
 
-For long intercontinental spans, Packet Atlas adds an explicitly labeled physical-route model through cable landing regions in Chennai, Singapore, Guam, Hawaiʻi, and California. These are educational infrastructure waypoints, not measured traceroute hops. Traceroute cannot reveal the exact cable, and even published cable maps use stylized rather than precise seabed routes; see [TeleGeography's submarine cable FAQ](https://www2.telegeography.com/submarine-cable-faqs-frequently-asked-questions).
+Traceroute cannot reveal the exact submarine cable. Packet Atlas therefore does not insert predefined landing stations or claim a specific seabed route. The learning material explains subsea transport separately from the measured hop map.
 
-Queries entered into the interface remain in the browser; only the fixed trace target is contacted by the server.
+The educational question remains in the browser. The separately entered hostname is sent to the Packet Atlas server so it can resolve and trace that destination.
 
 ## Accessibility
 

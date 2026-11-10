@@ -44,11 +44,15 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M14 7l5 5-5 5"/></svg>
           </button>
         </form>
-        <div class="suggestions" aria-label="Example searches">
-          <span>Try</span>
-          <button type="button" data-query="How does DNS find a website?">How does DNS work?</button>
-          <button type="button" data-query="How do undersea internet cables work?">Undersea cables</button>
-          <button type="button" data-query="What is the OSI model?">The OSI model</button>
+        <div class="destination-control">
+          <label for="targetInput"><span>Trace destination</span><small>Public hostname — measured again for every search</small></label>
+          <input id="targetInput" name="target" form="searchForm" type="text" inputmode="url" autocomplete="url" autocapitalize="none" spellcheck="false" maxlength="253" placeholder="wikipedia.org" required />
+        </div>
+        <div class="suggestions" aria-label="Example destinations">
+          <span>Try a region</span>
+          <button type="button" data-query="How does DNS find this website?" data-target="www.nic.in">India · nic.in</button>
+          <button type="button" data-query="How do undersea internet cables work?" data-target="www.gov.sg">Singapore · gov.sg</button>
+          <button type="button" data-query="What is the OSI model?" data-target="www.u-tokyo.ac.jp">Japan · u-tokyo.ac.jp</button>
         </div>
       </section>
 
@@ -56,7 +60,7 @@
         <h2 class="sr-only" id="simulator-title">Interactive packet journey simulator</h2>
         <div class="simulator">
           <div class="visual-stage">
-            <canvas id="globeCanvas" aria-label="Animated globe showing measured responding network hops from the site server to the search service, plus a clearly labeled return-path model"></canvas>
+            <canvas id="globeCanvas" aria-label="Animated globe showing responding network hops whose approximate IP locations are compatible with measured latency"></canvas>
             <div class="globe-label" id="originLabel">
               <span class="device-glyph" aria-hidden="true"></span>
               <span><small>Trace origin</small><strong>Site server · resolving…</strong></span>
@@ -64,12 +68,11 @@
             <div class="map-legend" aria-label="Map legend">
               <span><i class="legend-request"></i> Request</span>
               <span><i class="legend-response"></i> Response</span>
-              <span><i class="legend-cable"></i> Modeled subsea fiber</span>
-              <span><i class="legend-landing"></i> Cable landing</span>
+              <span><i class="legend-estimate"></i> Approximate IP location</span>
             </div>
             <div class="visual-caption">
               <span class="live-pill"><i></i> <span id="routeMode">Ready for live trace</span></span>
-              <span id="routeScope">Natural Earth geography · hop locations are IP-based estimates</span>
+              <span id="routeScope">Natural Earth geography · IP locations are checked against measured latency</span>
             </div>
           </div>
 
@@ -208,7 +211,7 @@
         </div>
         <div class="truth-note">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4M12 16h.01"/></svg>
-          <p><strong>What this can—and cannot—show.</strong> Live mode plots every responding public router using its measured IP. Traceroute cannot reveal the exact submarine cable, so long ocean spans use clearly marked landing-station models. IP location is approximate, private hops may be hidden, and the return route can differ.</p>
+          <p><strong>What this can—and cannot—show.</strong> Live mode plots responding public routers only when their approximate IP locations are compatible with measured latency. Impossible coordinates are withheld, private or silent hops remain unknown, traceroute cannot identify the exact submarine cable, and the real return route may differ.</p>
         </div>
       </section>
     </main>

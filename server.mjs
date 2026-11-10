@@ -7,7 +7,6 @@ import net from 'node:net';
 
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
-const targetHost = process.env.TRACE_TARGET || 'www.google.com';
 const maxHops = Math.min(Number(process.env.TRACE_MAX_HOPS || 18), 24);
 
 const mime = {
@@ -48,7 +47,59 @@ function parseTrace(text) {
 function isPrivateIp(ip) {
   if (!ip || net.isIP(ip) !== 4) return true;
   const [a,b] = ip.split('.').map(Number);
-  return a === 10 || a === 127 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254);
+  return a === 0 || a === 10 || a === 127 || a >= 224 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && (b === 0 || b === 168)) ||
+    (a === 198 && (b === 18 || b === 19));
+}
+
+function normalizeTarget(value) {
+  const raw = String(value || '').trim();
+  if (!raw) throw new Error('Choose a public destination hostname for this trace');
+  let hostname = raw;
+  try { hostname = new URL(raw.includes('://') ? raw : `https://${raw}`).hostname; }
+  catch { throw new Error('Enter a valid public hostname, such as wikipedia.org'); }
+  hostname = hostname.toLowerCase().replace(/\.$/, '');
+  if (hostname.length > 253 || !hostname.includes('.') || !/^[a-z0-9.-]+$/.test(hostname) || hostname.split('.').some(label => !label || label.length > 63 || label.startsWith('-') || label.endsWith('-'))) {
+    throw new Error('Enter a valid public hostname, such as wikipedia.org');
+  }
+  return hostname;
+}
+
+function haversineKm(a, b) {
+  const radians = degrees => degrees * Math.PI / 180;
+  const lat1 = radians(a.latitude), lat2 = radians(b.latitude);
+  const dLat = lat2 - lat1, dLon = radians(b.longitude - a.longitude);
+  const value = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+}
+
+function assessLocation(source, hop) {
+  if (!Number.isFinite(hop.latitude) || !Number.isFinite(hop.longitude)) return hop;
+  if (!source || !Number.isFinite(source.latitude) || !Number.isFinite(source.longitude) || !Number.isFinite(hop.rttMs)) {
+    return { ...hop, locationConfidence:'estimated', locationReason:'IP registration estimate; latency was unavailable for a physical plausibility check.' };
+  }
+  const geoDistanceKm = haversineKm(source, hop);
+  // Light travels about 200 km/ms in fiber. RTT includes the return trip and routing overhead,
+  // so RTT × 100 km is a generous one-way ceiling; the margin accommodates noisy measurements.
+  const maximumPlausibleKm = Math.max(350, hop.rttMs * 135 + 250);
+  if (geoDistanceKm <= maximumPlausibleKm) {
+    return { ...hop, geoDistanceKm, maximumPlausibleKm, locationConfidence:'plausible', locationReason:'Approximate IP location is physically compatible with the measured round-trip time.' };
+  }
+  return {
+    ...hop,
+    reportedLatitude:hop.latitude,
+    reportedLongitude:hop.longitude,
+    reportedLocationLabel:hop.locationLabel,
+    latitude:null,
+    longitude:null,
+    locationLabel:'Physical location uncertain',
+    geoDistanceKm,
+    maximumPlausibleKm,
+    locationConfidence:'inconsistent',
+    locationReason:`The IP database reports ${hop.locationLabel || 'a distant location'}, but ${hop.rttMs.toFixed(1)} ms RTT cannot physically cover about ${Math.round(geoDistanceKm).toLocaleString('en-US')} km. Latency only constrains this hop to roughly ${Math.round(maximumPlausibleKm).toLocaleString('en-US')} route-km from the trace origin, so the reported point is not plotted.`
+  };
 }
 
 async function geolocate(ip) {
@@ -80,17 +131,21 @@ async function locateTraceSource() {
   } catch { return null; }
 }
 
-async function tracePayload() {
+async function tracePayload(requestedTarget) {
+  const targetHost = normalizeTarget(requestedTarget);
   const destination = await lookup(targetHost, { family:4 });
+  if (isPrivateIp(destination.address)) throw new Error('The destination must resolve to a public IPv4 address');
   const sourcePromise = locateTraceSource();
   let hops;
   try { hops = parseTrace(await runTraceroute(destination.address)); }
   catch { hops = [{ hop:1, ip:destination.address, rttMs:null, limited:true }]; }
-  const located = await Promise.all(hops.map(async hop => ({ ...hop, ...(hop.ip ? await geolocate(hop.ip) : {}) })));
+  const source = await sourcePromise;
+  const geolocated = await Promise.all(hops.map(async hop => ({ ...hop, ...(hop.ip ? await geolocate(hop.ip) : {}) })));
+  const located = geolocated.map(hop => assessLocation(source, hop));
   return {
-    targetHost, targetIp:destination.address, traceOrigin:'site-server', source:await sourcePromise,
+    targetHost, targetIp:destination.address, traceOrigin:'site-server', source,
     respondingHops:located.filter(hop => hop.ip).length,
-    note:'Traceroute is measured from the site server. IP geolocation is approximate; silent and private hops cannot be physically located.',
+    note:'Traceroute is measured from the site server. IP locations are estimates and are removed from the map when measured latency makes them physically impossible.',
     hops:located
   };
 }
@@ -114,7 +169,8 @@ async function serveFile(req,res) {
 const server = http.createServer(async (req,res) => {
   if (req.url?.startsWith('/api/trace')) {
     try {
-      const payload = await tracePayload();
+      const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      const payload = await tracePayload(requestUrl.searchParams.get('target'));
       res.writeHead(200, { 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store' });
       res.end(JSON.stringify(payload));
     } catch (error) {
