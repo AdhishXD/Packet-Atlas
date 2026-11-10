@@ -1,0 +1,406 @@
+const canvas = document.querySelector('#globeCanvas');
+const ctx = canvas.getContext('2d');
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const $ = (selector) => document.querySelector(selector);
+const searchForm = $('#searchForm');
+const queryInput = $('#queryInput');
+const playButton = $('#playButton');
+const restartButton = $('#restartButton');
+const speedSelect = $('#speedSelect');
+const layerItems = [...document.querySelectorAll('.layer-stack li')];
+const labLayerButtons = [...document.querySelectorAll('[data-lab-layer]')];
+let worldGeo = null;
+let lessonQuery = 'How does DNS work?';
+let lessonBytes = new TextEncoder().encode(lessonQuery);
+let lessonCipher = new Uint8Array([0x8f,0x29,0xa4,0x71,0x0c,0xe3,0xb8,0x55]);
+let labPinned = false;
+
+fetch('/data/countries-110m.geojson')
+  .then(response => response.ok ? response.json() : Promise.reject(new Error('World geometry unavailable')))
+  .then(data => { worldGeo = data; })
+  .catch(() => { worldGeo = null; });
+
+const places = {
+  chennai: { name: 'Your device · Chennai', lat: 13.08, lon: 80.27, type: 'device' },
+  mumbai: { name: 'ISP gateway · Mumbai', lat: 19.08, lon: 72.88, type: 'router' },
+  singapore: { name: 'DNS resolver · Singapore', lat: 1.35, lon: 103.82, type: 'dns' },
+  tokyo: { name: 'Edge server · Tokyo', lat: 35.68, lon: 139.65, type: 'edge' },
+  sf: { name: 'Origin server · California', lat: 37.77, lon: -122.42, type: 'server' }
+};
+
+const learningStages = [
+  { kicker:'Layer 7 · Application', title:'Your question becomes data', description:'The browser turns your text into an HTTPS request and asks DNS where the service lives.', protocol:'HTTPS · DNS', distance:'0 km', layers:[7], duration:2100, at:'chennai' },
+  { kicker:'Layers 6 → 1 · Encapsulation', title:'Seven layers add context', description:'TLS protects the message, TCP numbers it, IP addresses it, Wi‑Fi frames it, and radio carries the bits.', protocol:'TLS · TCP · IP', distance:'0 km', layers:[6,5,4,3,2,1], duration:3200, at:'chennai', cascade:'down' },
+  { kicker:'Local network → ISP', title:'Leaving your device', description:'Your router forwards the packet to your provider. Each router reads the destination IP and chooses a next hop.', protocol:'Wi‑Fi · IP', distance:'1,032 km', layers:[2,3], duration:2500, from:'chennai', to:'mumbai' },
+  { kicker:'Name resolution', title:'Finding the server address', description:'A recursive DNS resolver follows cached records or asks the DNS hierarchy, then returns an IP address.', protocol:'DNS · UDP', distance:'4,210 km', layers:[7,4,3], duration:2600, from:'mumbai', to:'singapore' },
+  { kicker:'Physical infrastructure', title:'Light crosses the ocean', description:'At a cable landing station, electrical signals become pulses of light inside protected glass fiber on the seabed.', protocol:'Fiber · IP', distance:'5,310 km', layers:[3,2,1], duration:3200, from:'singapore', to:'tokyo', cable:true },
+  { kicker:'Content delivery network', title:'An edge server receives it', description:'A nearby edge can answer from cache. If it cannot, it securely forwards the request toward the origin.', protocol:'TLS · TCP', distance:'5,310 km', layers:[7,6,5,4], duration:2300, at:'tokyo' },
+  { kicker:'Long-haul backbone', title:'Forwarded to the origin', description:'Routers hand the packet between networks. The path follows policy and availability, not simply the shortest line.', protocol:'BGP · IP', distance:'13,590 km', layers:[3,2,1], duration:3300, from:'tokyo', to:'sf', cable:true },
+  { kicker:'Server processing', title:'The server prepares a response', description:'Application code processes the request and sends response data back in ordered TCP segments.', protocol:'HTTP/2 · TCP', distance:'13,590 km', layers:[7,4], duration:2400, at:'sf' },
+  { kicker:'Return path', title:'The answer starts home', description:'The response can take a different route. TCP acknowledges delivered data and retransmits anything missing.', protocol:'TCP · IP', distance:'21,870 km', layers:[4,3,2,1], duration:3100, from:'sf', to:'tokyo', response:true, cable:true },
+  { kicker:'Edge → resolver region', title:'Back across the backbone', description:'Packets move independently through high-capacity links, often sharing fiber with millions of other flows.', protocol:'IP · Fiber', distance:'27,180 km', layers:[3,2,1], duration:2800, from:'tokyo', to:'singapore', response:true, cable:true },
+  { kicker:'ISP → local network', title:'Your provider routes it home', description:'The destination address guides the response to your router, which delivers frames to your device.', protocol:'IP · Wi‑Fi', distance:'32,422 km', layers:[3,2], duration:2700, from:'singapore', to:'chennai', response:true },
+  { kicker:'Layers 1 → 7 · Decapsulation', title:'Your browser rebuilds the answer', description:'Headers are checked and removed in reverse. TLS decrypts the content and the application renders the result.', protocol:'TCP · TLS · HTTP', distance:'32,422 km', layers:[1,2,3,4,5,6,7], duration:3200, at:'chennai', cascade:'up', response:true },
+  { kicker:'Journey complete', title:'The invisible trip is complete', description:'The whole exchange can finish in a fraction of a second—this version slows it down so every system stays visible.', protocol:'Response ready', distance:'32,422 km', layers:[7], duration:1600, at:'chennai', response:true, complete:true }
+];
+let stages = learningStages;
+
+let state = {
+  running:false, paused:false, complete:false, stage:0, stageStart:0, pausedAt:0,
+  query:'', speed:1, progress:0, elapsed:0, centerLon:98, centerLat:18,
+  targetLon:98, targetLat:18, cameraVelocityLon:0, cameraVelocityLat:0, lastFrame:0
+};
+
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+
+function normalizeLon(value) {
+  let lon = value;
+  while (lon > 180) lon -= 360;
+  while (lon < -180) lon += 360;
+  return lon;
+}
+
+function project(point, width, height) {
+  const radius = Math.min(width * .42, height * .42);
+  const cx = width * .47, cy = height * .48;
+  const projection = d3.geoOrthographic().translate([cx,cy]).scale(radius).rotate([-state.centerLon,-state.centerLat,0]).clipAngle(90);
+  const xy = projection([point.lon,point.lat]) || [cx,cy];
+  const visible = d3.geoDistance([state.centerLon,state.centerLat],[point.lon,point.lat]) < Math.PI/2;
+  return { x:xy[0], y:xy[1], z:visible ? 1 : -1, radius, cx, cy };
+}
+
+function interpolate(a,b,t) {
+  const point=d3.geoInterpolate([a.lon,a.lat],[b.lon,b.lat])(t);
+  return { lon:point[0],lat:point[1] };
+}
+
+function drawCurve(points, projection, color, lineWidth=1, dash=[], progress=1) {
+  ctx.save();
+  ctx.strokeStyle=color;
+  ctx.lineWidth=lineWidth;
+  ctx.setLineDash(dash);
+  ctx.beginPath();
+  const coordinates=[];
+  const clampedProgress=Math.min(1,Math.max(0,progress));
+  for(let s=0;s<points.length-1;s++) for(let i=0;i<=64;i++) {
+    const p=interpolate(points[s],points[s+1],(i/64)*clampedProgress);coordinates.push([p.lon,p.lat]);
+  }
+  d3.geoPath(projection,ctx)({type:'LineString',coordinates});
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawGlobe(time) {
+  const width=canvas.clientWidth, height=canvas.clientHeight;
+  ctx.clearRect(0,0,width,height);
+  const center=project({lat:0,lon:state.centerLon},width,height);
+  const {cx,cy,radius}=center;
+  const projection=d3.geoOrthographic().translate([cx,cy]).scale(radius).rotate([-state.centerLon,-state.centerLat,0]).clipAngle(90).precision(.35);
+  const path=d3.geoPath(projection,ctx);
+  const ocean=ctx.createRadialGradient(cx-radius*.28,cy-radius*.34,radius*.08,cx,cy,radius);
+  ocean.addColorStop(0,'#174766');ocean.addColorStop(.48,'#0c2a41');ocean.addColorStop(1,'#03101b');
+  ctx.save();ctx.shadowColor='rgba(76,190,255,.3)';ctx.shadowBlur=50;ctx.beginPath();path({type:'Sphere'});ctx.fillStyle=ocean;ctx.fill();ctx.restore();
+  ctx.save();ctx.beginPath();path({type:'Sphere'});ctx.clip();
+
+  ctx.beginPath();path(d3.geoGraticule10());ctx.strokeStyle='rgba(125,189,220,.09)';ctx.lineWidth=.7;ctx.stroke();
+  if(worldGeo){
+    ctx.beginPath();path(worldGeo);ctx.fillStyle='rgba(34,78,82,.78)';ctx.fill();
+    ctx.beginPath();path(worldGeo);ctx.strokeStyle='rgba(168,221,222,.34)';ctx.lineWidth=.55;ctx.stroke();
+  }
+
+  Object.values(places).forEach(place=>{
+    const p=project(place,width,height); if(p.z<=0)return;
+    ctx.fillStyle='rgba(163,226,243,.18)';ctx.beginPath();ctx.arc(p.x,p.y,7,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#b9e9f6';ctx.beginPath();ctx.arc(p.x,p.y,2.1,0,Math.PI*2);ctx.fill();
+  });
+
+  const stage=stages[state.stage];
+  if(state.running||state.complete){
+    const completedEnd=state.complete?stages.length:state.stage;
+    stages.slice(0,completedEnd).forEach(completed=>{
+      if(!completed.from||!completed.to)return;
+      const from=places[completed.from],to=places[completed.to];
+      if(!from||!to)return;
+      if(completed.cable)drawCurve([from,to],projection,'rgba(156,190,205,.25)',1,[4,5]);
+      drawCurve([from,to],projection,completed.response?'rgba(121,239,189,.52)':'rgba(99,230,255,.5)',2);
+    });
+  }
+  if(state.running && stage && stage.from && stage.to){
+    const a=places[stage.from],b=places[stage.to];
+    const route=[a,b];
+    const eased=reducedMotion?1:state.progress*state.progress*(3-2*state.progress);
+    drawCurve(route,projection,stage.response?'rgba(121,239,189,.18)':'rgba(99,230,255,.18)',1.2,[3,5]);
+    if(stage.cable)drawCurve(route,projection,'rgba(156,190,205,.3)',1,[4,5],eased);
+    drawCurve(route,projection,stage.response?'rgba(121,239,189,.9)':'rgba(99,230,255,.92)',2.4,[],eased);
+    const packet=project(interpolate(a,b,eased),width,height);
+    if(packet.z>0){
+      const color=stage.response?'#79efbd':'#63e6ff';
+      ctx.save();ctx.shadowColor=color;ctx.shadowBlur=20;ctx.fillStyle=color;ctx.beginPath();ctx.arc(packet.x,packet.y,4.4,0,Math.PI*2);ctx.fill();ctx.restore();
+      const trail=project(interpolate(a,b,Math.max(0,eased-.045)),width,height);
+      if(trail.z>0){ctx.strokeStyle=color;ctx.globalAlpha=.5;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(trail.x,trail.y);ctx.lineTo(packet.x,packet.y);ctx.stroke();ctx.globalAlpha=1;}
+    }
+  }else if(state.running&&stage?.at&&places[stage.at]){
+    const checkpoint=project(places[stage.at],width,height);
+    if(checkpoint.z>0){
+      const color=stage.response?'#79efbd':'#63e6ff';
+      const pulse=reducedMotion?6:6+Math.sin(time/220)*1.4;
+      ctx.save();ctx.globalAlpha=.28;ctx.fillStyle=color;ctx.beginPath();ctx.arc(checkpoint.x,checkpoint.y,pulse+5,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;ctx.shadowColor=color;ctx.shadowBlur=18;ctx.beginPath();ctx.arc(checkpoint.x,checkpoint.y,4,0,Math.PI*2);ctx.fill();ctx.restore();
+    }
+  }
+  ctx.restore();
+  ctx.strokeStyle='rgba(154,219,242,.28)';ctx.lineWidth=1;ctx.beginPath();path({type:'Sphere'});ctx.stroke();
+  const shine=ctx.createLinearGradient(cx-radius,cy-radius,cx+radius,cy+radius);shine.addColorStop(0,'rgba(255,255,255,.11)');shine.addColorStop(.35,'rgba(255,255,255,0)');
+  ctx.fillStyle=shine;ctx.beginPath();ctx.arc(cx,cy,radius-1,0,Math.PI*2);ctx.fill();
+}
+
+function updateStageUI() {
+  const stage=stages[state.stage];
+  $('#stageKicker').textContent=stage.kicker;
+  $('#stageTitle').textContent=stage.title;
+  $('#stageDescription').textContent=stage.description;
+  $('#protocolMetric').textContent=stage.protocol;
+  $('#distanceMetric').textContent=stage.distance;
+  $('#stepCount').textContent=`${state.stage+1} of ${stages.length}`;
+  $('#timelineStatus').textContent=stage.title;
+  const location=stage.to || stage.at || stage.from;
+  if(location) $('#originLabel strong').textContent=places[location].name;
+  layerItems.forEach(item=>item.classList.toggle('active',stage.layers.includes(Number(item.dataset.layer))));
+  const focusPlace=stage.to ? places[stage.to] : stage.at ? places[stage.at] : null;
+  if(focusPlace){state.targetLon=focusPlace.lon;state.targetLat=Math.max(-45,Math.min(55,focusPlace.lat*.58));}
+  if(stage.layers?.length&&!labPinned) selectLabLayer(stage.layers[0],false);
+}
+
+function buildLiveStages(trace) {
+  const measured = trace.hops;
+  const responding = measured.filter(hop => hop.ip);
+  const newPlaces = {};
+  if (Number.isFinite(trace.source?.latitude) && Number.isFinite(trace.source?.longitude)) {
+    newPlaces.traceOrigin = {
+      name:`Site server · ${trace.source.locationLabel}`,
+      lat:trace.source.latitude, lon:trace.source.longitude, type:'server', ip:trace.source.ip
+    };
+  }
+  measured.forEach(hop => {
+    if (!Number.isFinite(hop.latitude) || !Number.isFinite(hop.longitude)) return;
+    newPlaces[`hop${hop.hop}`] = {
+      name: hop.locationLabel || hop.hostname || `Network hop ${hop.hop}`,
+      lat: hop.latitude,
+      lon: hop.longitude,
+      type: hop.ip === trace.targetIp ? 'server' : 'router',
+      ip: hop.ip
+    };
+  });
+  Object.assign(places, newPlaces);
+
+  const locatedKeys = measured.filter(hop => Number.isFinite(hop.latitude) && Number.isFinite(hop.longitude)).map(hop => `hop${hop.hop}`);
+  const originKey = newPlaces.traceOrigin ? 'traceOrigin' : (locatedKeys[0] || 'chennai');
+  let lastLocatedKey = originKey;
+  const networkStages = measured.map((hop, index) => {
+    const key = `hop${hop.hop}`;
+    const hasLocation = Number.isFinite(hop.latitude) && Number.isFinite(hop.longitude);
+    const previousLocatedKey = lastLocatedKey;
+    if (hasLocation) lastLocatedKey = key;
+    const label = hop.locationLabel || (hop.ip ? 'Private or unresolved location' : 'Router did not respond');
+    const position = hasLocation
+      ? (previousLocatedKey ? { from:previousLocatedKey, to:key } : { at:key })
+      : { at:previousLocatedKey || originKey };
+    return {
+      kicker: index === measured.length - 1 ? 'Destination reached' : `Measured router · hop ${hop.hop}`,
+      title: hop.ip === trace.targetIp ? `Reached ${trace.targetHost}` : label,
+      description: `${hop.ip || 'No public IP returned'}${hop.hostname && hop.hostname !== hop.ip ? ` · ${hop.hostname}` : ''}${hop.isp ? ` · ${hop.isp}` : ''}. ${hasLocation ? 'Position is estimated from the hop’s public IP registration.' : hop.ip ? 'This hop is private or its physical location could not be resolved, so the globe does not invent a position.' : 'This router did not answer traceroute, so its identity and position remain unknown.'}`,
+      protocol: hop.ip || 'Silent hop',
+      distance: hop.rttMs == null ? 'No RTT' : `${hop.rttMs.toFixed(1)} ms RTT`,
+      layers: [3,2,1],
+      duration: 1750,
+      ...position,
+      cable: Boolean(previousLocatedKey && hasLocation && Math.abs(newPlaces[previousLocatedKey].lon - newPlaces[key].lon) > 18)
+    };
+  });
+
+  const firstKey = originKey;
+  const lastKey = locatedKeys.at(-1) || firstKey;
+  return [
+    { ...learningStages[0], title:'Your question becomes an HTTPS request', at:originKey },
+    { ...learningStages[1], at:originKey },
+    ...networkStages,
+    { kicker:'Server processing', title:'The search service prepares a response', description:`The measured destination at ${places[lastKey]?.name || trace.targetHost} accepts the request. Application processing happens above the network path we can trace.`, protocol:'HTTPS', distance:`${responding.length} responding hops`, layers:[7,6,5,4], duration:2100, at:lastKey },
+    ...networkStages.slice().reverse().map((stage,index) => {
+      const originalIndex=measured.length-1-index;
+      const currentHop=measured[originalIndex];
+      const currentKey=`hop${currentHop.hop}`;
+      const earlierLocated=measured.slice(0,originalIndex).reverse().find(hop => Number.isFinite(hop.latitude) && Number.isFinite(hop.longitude));
+      const currentLocated=Number.isFinite(currentHop.latitude) && Number.isFinite(currentHop.longitude);
+      const position=currentLocated && earlierLocated ? {from:currentKey,to:`hop${earlierLocated.hop}`} : {at:currentLocated?currentKey:(earlierLocated?`hop${earlierLocated.hop}`:firstKey)};
+      return { ...stage, kicker:`Return path model · hop ${currentHop.hop}`, title:originalIndex===0?'Returning to the site server':stage.title, description:`Response traffic returns toward the requester. The exact return path may differ; this animation reverses the measured outbound trace because standard traceroute observes one direction only.`, response:true, ...position };
+    }),
+    { ...learningStages[11], at:firstKey },
+    { ...learningStages[12], at:firstKey }
+  ];
+}
+
+async function loadLiveTrace() {
+  $('#routeMode').textContent='Measuring live hops…';
+  $('#routeScope').textContent='Waiting for responding routers';
+  try {
+    const response = await fetch('/api/trace', { headers:{ Accept:'application/json' } });
+    if (!response.ok) throw new Error(`Trace returned ${response.status}`);
+    const trace = await response.json();
+    if (!trace.hops?.some(hop => hop.ip)) throw new Error('No responding hops');
+    stages = buildLiveStages(trace);
+    $('#routeMode').textContent='Live measured route';
+    $('#routeScope').textContent=`${trace.respondingHops} responding hops · ${trace.source?.locationLabel || 'site server'} → ${trace.targetHost} · IP-based locations`;
+    return true;
+  } catch (error) {
+    stages = learningStages;
+    $('#routeMode').textContent='Learning route fallback';
+    $('#routeScope').textContent='Live traceroute unavailable · illustrative route shown clearly';
+    return false;
+  }
+}
+
+const layerLessons={
+  7:{icon:'Aa',kicker:'Application data',title:'The browser gives your words structure',description:'The query becomes part of an HTTP request. Headers describe the destination, language, accepted formats, and other context the server needs.',inputLabel:'Your words',outputLabel:'HTTP request',input:()=>lessonQuery,output:()=>`GET /search?q=${encodeURIComponent(lessonQuery)}\nHost: search.example\nAccept: text/html`,parts:[['HTTP headers','header-part'],['Query data','payload-part']],changed:'A method, path, and headers surround the query.',why:'Both browser and server now agree on how to interpret the message.',unit:'Data',note:'The example uses an HTTP-style request. HTTP/2 and HTTP/3 encode the same ideas in a more compact form.'},
+  6:{icon:'TLS',kicker:'Presentation · TLS',title:'Readable bytes become ciphertext',description:'UTF‑8 first converts characters into bytes. TLS then uses an authenticated cipher so observers can see packet sizes and endpoints, but not the question itself.',inputLabel:'UTF‑8 bytes',outputLabel:'AES‑GCM ciphertext sample',input:()=>hex(lessonBytes,56),output:()=>hex(lessonCipher,72),parts:[['TLS record','header-part'],['Nonce','trailer-part'],['Encrypted query','payload-part'],['Auth tag','trailer-part']],changed:'The readable byte pattern becomes pseudorandom ciphertext plus an authentication tag.',why:'Encryption protects confidentiality; the tag detects tampering.',unit:'TLS record',note:'This is a real local AES‑GCM demonstration with a temporary key. Production TLS 1.3 performs a key exchange and encrypts the complete HTTP record.'},
+  5:{icon:'↔',kicker:'Session state',title:'Both endpoints keep the conversation alive',description:'TLS handshake messages negotiate algorithms and shared keys. The connection then maintains state so later records belong to the same secure conversation.',inputLabel:'Handshake',outputLabel:'Established state',input:()=>`ClientHello → ServerHello\nkey agreement + certificate`,output:()=>`session: established\ncipher: AES-256-GCM\nkey: shared, never transmitted`,parts:[['Session ID','header-part'],['TLS state','payload-part']],changed:'A shared connection context is created around the encrypted records.',why:'Messages can be associated with the correct secure conversation.',unit:'Session',note:'The OSI session layer is conceptual; real web stacks often combine this responsibility with TLS and the application.'},
+  4:{icon:'TCP',kicker:'Transport · TCP',title:'The encrypted stream is split and numbered',description:'TCP divides the byte stream into segments. Ports identify applications; sequence and acknowledgement numbers keep data ordered and reveal what needs retransmission.',inputLabel:'Encrypted stream',outputLabel:'TCP segment',input:()=>`${lessonCipher.length} encrypted bytes`,output:()=>`src 52144 → dst 443\nseq 184320 · ack 77102\nflags ACK, PSH`,parts:[['TCP header','header-part'],['Seq 184320','header-part'],['TLS record','payload-part']],changed:'Ports, sequence numbers, acknowledgements, flags, and a checksum are added.',why:'The receiver can order segments, control flow, and recover from loss.',unit:'Segment',note:'HTTP/3 uses QUIC over UDP instead of TCP, but it still provides reliable streams, encryption, and congestion control.'},
+  3:{icon:'IP',kicker:'Network · IP',title:'The segment receives global addresses',description:'IP adds source and destination addresses plus a hop limit. Routers inspect this header and forward the packet toward the next network.',inputLabel:'TCP segment',outputLabel:'IPv4 packet header',input:()=>`TCP header + ${lessonCipher.length} encrypted bytes`,output:()=>`src 103.169.236.165\ndst 142.251.155.119\nTTL 64 · protocol TCP`,parts:[['IP header','header-part'],['TCP header','header-part'],['Encrypted data','payload-part']],changed:'Source, destination, protocol, length, and time-to-live fields are added.',why:'Routers now know where the packet should go and when to discard a looping packet.',unit:'Packet',note:'The addresses shown are study examples. Live mode displays the measured destination and responding hop IPs separately.'},
+  2:{icon:'MAC',kicker:'Data link · Ethernet / Wi‑Fi',title:'Each local link wraps the packet in a frame',description:'A frame uses link-local hardware addresses to cross one Wi‑Fi or Ethernet segment. A router removes it and creates a new frame for the next link.',inputLabel:'IP packet',outputLabel:'Local frame',input:()=>`IP packet for 142.251.155.119`,output:()=>`dst MAC 6C:3B:6B:••:••:••\nsrc MAC A4:83:E7:••:••:••\nFCS 0x91C2`,parts:[['MAC header','header-part'],['IP packet','payload-part'],['FCS','trailer-part']],changed:'Next-hop MAC addresses and an error-detection trailer surround the IP packet.',why:'The packet can cross the current physical network and corruption can be detected.',unit:'Frame',note:'MAC addresses change at every routed link. The destination IP generally stays the same unless translation or tunneling occurs.'},
+  1:{icon:'01',kicker:'Physical signal',title:'Bits become radio, electricity, or light',description:'The network interface encodes zeros and ones as changes in a physical signal. Wi‑Fi uses radio; copper uses voltage; fiber uses tightly controlled pulses of light.',inputLabel:'Frame bits',outputLabel:'Signal pattern',input:()=>bits(lessonBytes,64),output:()=>`radio symbols → electrical waveform → optical pulses`,parts:[['10110010 01101101','payload-part']],changed:'A logical bitstream becomes timed changes in amplitude, phase, frequency, voltage, or light.',why:'Physical media can carry the frame between network interfaces.',unit:'Bits',note:'The animation is symbolic: real modulation encodes multiple bits per symbol and uses error correction, synchronization, and parallel channels.'}
+};
+
+function hex(bytes,limit=64){const value=[...bytes].map(byte=>byte.toString(16).padStart(2,'0')).join(' ');return value.length>limit?`${value.slice(0,limit)}…`:value;}
+function bits(bytes,limit=64){const value=[...bytes].map(byte=>byte.toString(2).padStart(8,'0')).join(' ');return value.length>limit?`${value.slice(0,limit)}…`:value;}
+
+async function preparePacketLesson(query){
+  lessonQuery=query || lessonQuery;lessonBytes=new TextEncoder().encode(lessonQuery);
+  try{
+    const key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt']);
+    const iv=crypto.getRandomValues(new Uint8Array(12));
+    lessonCipher=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},key,lessonBytes));
+  }catch{lessonCipher=lessonBytes.map((byte,index)=>byte^(0xa7+index)%256);}
+  const selected=Number(labLayerButtons.find(button=>button.getAttribute('aria-selected')==='true')?.dataset.labLayer||7);
+  selectLabLayer(selected,false);
+}
+
+function selectLabLayer(layer,scroll=true){
+  const lesson=layerLessons[layer];if(!lesson)return;
+  labLayerButtons.forEach(button=>button.setAttribute('aria-selected',String(Number(button.dataset.labLayer)===layer)));
+  $('#labStepLabel').textContent=`Layer ${layer} of 7`;
+  $('#labIcon').textContent=lesson.icon;$('#labKicker').textContent=lesson.kicker;$('#labTitle').textContent=lesson.title;$('#labDescription').textContent=lesson.description;
+  $('#labInputLabel').textContent=lesson.inputLabel;$('#labOutputLabel').textContent=lesson.outputLabel;$('#labInput').textContent=lesson.input();$('#labOutput').textContent=lesson.output();
+  $('#labChanged').textContent=lesson.changed;$('#labWhy').textContent=lesson.why;$('#labUnit').textContent=lesson.unit;$('#labNote').textContent=lesson.note;
+  const anatomy=$('#packetAnatomy');anatomy.replaceChildren();
+  lesson.parts.forEach(([label,className],index)=>{const part=document.createElement('span');part.className=`packet-part ${className}`;part.textContent=label;part.style.animationDelay=`${index*.055}s`;anatomy.append(part);});
+  $('#signalVisual').classList.toggle('visible',layer===1);
+  $('#labPrevious').disabled=layer===7;$('#labNext').disabled=layer===1;$('#labNext').innerHTML=layer===1?'At the wire':'Next layer <span>→</span>';
+  if(scroll) $('#packet-lab').scrollIntoView({behavior:reducedMotion?'auto':'smooth',block:'center'});
+}
+
+function totalDuration() { return stages.reduce((sum,s)=>sum+s.duration,0); }
+function beforeDuration(index) { return stages.slice(0,index).reduce((sum,s)=>sum+s.duration,0); }
+
+function animate(now) {
+  const dt=state.lastFrame?Math.min(.034,(now-state.lastFrame)/1000):.016;state.lastFrame=now;
+  if(state.running && !state.paused && !state.complete){
+    const stage=stages[state.stage];
+    const elapsed=(now-state.stageStart)*state.speed;
+    state.progress=Math.min(1,elapsed/stage.duration);
+    state.elapsed=beforeDuration(state.stage)+Math.min(elapsed,stage.duration);
+    const whole=Math.min(1,state.elapsed/totalDuration());
+    $('#timelineFill').style.width=`${whole*100}%`;
+    $('#timelineDot').style.left=`${whole*100}%`;
+    $('#timelinePercent').textContent=`${Math.round(whole*100)}%`;
+    $('#timeMetric').textContent=`${Math.round(state.elapsed/38)} ms`;
+    const lonDelta=normalizeLon(state.targetLon-state.centerLon),latDelta=state.targetLat-state.centerLat;
+    if(reducedMotion){state.centerLon=state.targetLon;state.centerLat=state.targetLat;}
+    else{
+      const response=7.2,damping=2*response;
+      state.cameraVelocityLon+=(response*response*lonDelta-damping*state.cameraVelocityLon)*dt;
+      state.cameraVelocityLat+=(response*response*latDelta-damping*state.cameraVelocityLat)*dt;
+      state.centerLon=normalizeLon(state.centerLon+state.cameraVelocityLon*dt);
+      state.centerLat+=state.cameraVelocityLat*dt;
+    }
+    if(state.progress>=1){
+      if(stage.complete){ finishJourney(); }
+      else { state.stage++;state.progress=0;state.stageStart=now;updateStageUI(); }
+    }
+  }
+  drawGlobe(now);
+  requestAnimationFrame(animate);
+}
+
+async function startJourney(query, restart=false) {
+  state.query=query || state.query || 'How does a search travel?';
+  labPinned=false;
+  preparePacketLesson(state.query);
+  if (!restart) await loadLiveTrace();
+  state.running=true;state.paused=false;state.complete=false;state.stage=0;state.progress=0;state.elapsed=0;state.stageStart=performance.now();state.centerLon=98;state.centerLat=18;state.targetLon=98;state.targetLat=18;state.cameraVelocityLon=0;state.cameraVelocityLat=0;
+  playButton.classList.add('playing');playButton.setAttribute('aria-label','Pause simulation');
+  $('#answerSection').hidden=true;
+  updateStageUI();
+  if(!restart) $('#simulator').scrollIntoView({behavior:reducedMotion?'auto':'smooth',block:'center'});
+}
+
+function finishJourney(){
+  state.complete=true;state.running=false;state.progress=1;
+  playButton.classList.remove('playing');playButton.setAttribute('aria-label','Replay simulation');
+  $('#timelineFill').style.width='100%';$('#timelineDot').style.left='100%';$('#timelinePercent').textContent='100%';
+  $('#answerQuestion').textContent=`“${state.query}”`;
+  $('#answerText').textContent=answerFor(state.query);
+  $('#answerSection').hidden=false;
+  if(!reducedMotion) $('#answerSection').animate([{opacity:0,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0)'}],{duration:450,easing:'cubic-bezier(.2,.8,.2,1)'});
+}
+
+function answerFor(query){
+  const q=query.toLowerCase();
+  if(q.includes('dns')) return 'DNS is the internet’s naming system: resolvers translate a human-readable domain into the IP address that routers can use.';
+  if(q.includes('ocean')||q.includes('cable')) return 'Most intercontinental traffic travels as light through fiber-optic cables on the seabed. Armored sections protect shallow-water landings; repeaters amplify signals across long distances.';
+  if(q.includes('osi')) return 'The OSI model separates network communication into seven conceptual layers, from application data down to physical signals, making complex systems easier to reason about and troubleshoot.';
+  if(q.includes('tcp')) return 'TCP creates a reliable byte stream using sequence numbers, acknowledgements, flow control, and retransmission when packets are lost.';
+  return `A real search service would now return results for “${query}”. This study prototype keeps the text in your browser and visualizes the network journey instead of contacting a search server.`;
+}
+
+searchForm.addEventListener('submit',(event)=>{event.preventDefault();const query=queryInput.value.trim();if(!query){queryInput.focus();return;}startJourney(query);});
+document.querySelectorAll('[data-query]').forEach(button=>button.addEventListener('click',()=>{queryInput.value=button.dataset.query;startJourney(button.dataset.query);}));
+playButton.addEventListener('click',()=>{
+  if(state.complete||!state.running){startJourney(queryInput.value.trim()||state.query,true);return;}
+  if(state.paused){state.paused=false;state.stageStart=performance.now()-state.pausedAt/state.speed;playButton.classList.add('playing');playButton.setAttribute('aria-label','Pause simulation');}
+  else{state.paused=true;state.pausedAt=state.progress*stages[state.stage].duration;playButton.classList.remove('playing');playButton.setAttribute('aria-label','Resume simulation');$('#timelineStatus').textContent='Paused';}
+});
+restartButton.addEventListener('click',()=>startJourney(queryInput.value.trim()||state.query,true));
+speedSelect.addEventListener('change',()=>{const old=state.speed;const elapsed=performance.now()-state.stageStart;state.speed=Number(speedSelect.value);state.stageStart=performance.now()-(elapsed*old/state.speed);});
+$('#traceAgain').addEventListener('click',()=>{queryInput.value='';queryInput.focus();scrollTo({top:queryInput.getBoundingClientRect().top+scrollY-160,behavior:reducedMotion?'auto':'smooth'});});
+
+function openSheet(title,body){
+  $('#sheetTitle').textContent=title;$('#sheetBody').textContent=body;$('#sheetScrim').hidden=false;$('#aboutPanel').hidden=false;$('#infoButton').setAttribute('aria-expanded','true');
+  if(!reducedMotion) $('#aboutPanel').animate([{opacity:0,transform:'translate(-50%,-47%) scale(.97)',filter:'blur(8px)'},{opacity:1,transform:'translate(-50%,-50%) scale(1)',filter:'blur(0)'}],{duration:350,easing:'cubic-bezier(.2,.8,.2,1)'});
+  $('#closeSheet').focus();
+}
+function closeSheet(){ $('#sheetScrim').hidden=true;$('#aboutPanel').hidden=true;$('#infoButton').setAttribute('aria-expanded','false');$('#infoButton').focus(); }
+$('#infoButton').addEventListener('click',()=>openSheet('A model, not a packet capture','Packet Atlas keeps every query in your browser. It animates a representative journey so you can study encapsulation, addressing, routing, physical media, server processing, and decapsulation without collecting traffic.'));
+$('#closeSheet').addEventListener('click',closeSheet);$('#sheetScrim').addEventListener('click',closeSheet);
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('#aboutPanel').hidden)closeSheet();});
+
+const topics={
+  local:['Inside the local network','Your device uses ARP or neighbor discovery to find the gateway, wraps IP packets in local frames, and sends them over Wi‑Fi or Ethernet. The router may translate a private address to a public one using NAT.'],
+  dns:['DNS is a distributed directory','A recursive resolver checks its cache, then may ask root, top-level-domain, and authoritative name servers. The answer includes a time-to-live so it can be reused for a while.'],
+  cable:['Glass fiber on the seabed','Cable ships survey a safe route, lower the cable onto deep ocean floor, and bury or armor it near coasts. Optical repeaters along long spans keep the light signal readable.'],
+  server:['The response may follow another route','Servers often answer through a CDN edge. TCP or QUIC manages delivery, TLS protects the content, and the browser parses bytes into HTML, styles, images, and pixels.']
+};
+document.querySelectorAll('.learn-more').forEach(button=>button.addEventListener('click',()=>openSheet(...topics[button.dataset.topic])));
+$('#expandLayers').addEventListener('click',()=>{const expanded=$('#expandLayers').getAttribute('aria-expanded')==='true';$('#expandLayers').setAttribute('aria-expanded',String(!expanded));$('#expandLayers').textContent=expanded?'View all 7':'Showing 7 layers';layerItems.forEach(item=>item.style.display='grid');});
+labLayerButtons.forEach(button=>button.addEventListener('click',()=>{labPinned=true;selectLabLayer(Number(button.dataset.labLayer));}));
+$('#labPrevious').addEventListener('click',()=>{labPinned=true;const layer=Number(labLayerButtons.find(button=>button.getAttribute('aria-selected')==='true')?.dataset.labLayer||7);selectLabLayer(Math.min(7,layer+1),false);});
+$('#labNext').addEventListener('click',()=>{labPinned=true;const layer=Number(labLayerButtons.find(button=>button.getAttribute('aria-selected')==='true')?.dataset.labLayer||7);selectLabLayer(Math.max(1,layer-1),false);});
+
+new ResizeObserver(resizeCanvas).observe(canvas);
+resizeCanvas();
+preparePacketLesson(lessonQuery);
+requestAnimationFrame(animate);
