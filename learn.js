@@ -90,6 +90,18 @@ $$('#mediumSelect [role=option]').forEach(option=>option.addEventListener('click
   $('#mediumSelect').open=false;updateLatency();
 }));updateLatency();
 
+const mediumSelect=$('#mediumSelect');
+const mediumOptions=$$('#mediumSelect [role=option]');
+mediumSelect.addEventListener('keydown',event=>{
+  if(event.key==='Escape'){mediumSelect.open=false;mediumSelect.querySelector('summary').focus();return;}
+  if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
+  event.preventDefault();
+  if(!mediumSelect.open)mediumSelect.open=true;
+  const current=Math.max(0,mediumOptions.indexOf(document.activeElement));
+  const next=event.key==='Home'?0:event.key==='End'?mediumOptions.length-1:event.key==='ArrowDown'?Math.min(mediumOptions.length-1,current+1):Math.max(0,current-1);
+  mediumOptions[next].focus();
+});
+
 const osiLessons={
   7:['Layer 7 · Application','What the user-facing software understands','HTTP describes web requests, DNS looks up names, and SMTP moves email. This layer is about the meaning and rules of the application conversation.','Writing the actual letter.','HTTP · DNS · SMTP'],
   6:['Layer 6 · Presentation','Make data readable, compact, and protected','This conceptual layer translates formats, compresses data, and represents encryption. In real web stacks, TLS and applications often share these jobs.','Agreeing on a language and sealing the letter.','TLS · UTF‑8 · JPEG'],

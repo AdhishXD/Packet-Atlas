@@ -24,6 +24,8 @@ Do not open `index.html` directly with a `file://` URL when testing live routes.
 
 The repository includes a GitHub Pages workflow for the static frontend. See [`DEPLOYMENT.md`](DEPLOYMENT.md) for setup and for the small external backend required to keep live Trace search working. GitHub Pages cannot execute Node or traceroute by itself.
 
+The deployed frontend enables tracing only after the configured API passes its health check. When no backend is connected, Packet Atlas shows an offline status and never substitutes simulated endpoints, distances, or hops.
+
 ## Important scope
 
 Every search supplies its own public destination hostname or full website URL. The server resolves that hostname, runs a time-bounded traceroute, checks TCP reachability, and compares two independent IP-location services for each responding public hop and destination. A coordinate is plotted only when both sources agree within 250 km and the measured latency makes it physically possible. Disputed or single-source locations are explained but not plotted. A nearby Mumbai or Delhi result can be correct for a French or African website when DNS selects an Indian CDN edge; Packet Atlas labels that as a delivery edge and does not pretend it is the protected origin server.

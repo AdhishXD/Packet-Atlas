@@ -41,6 +41,9 @@
 .remember p,.security-callout p { margin:0;color:var(--muted);font-size:.76rem;line-height:1.6; }
 
 .lab-panel { margin:2rem 0;display:grid;grid-template-columns:minmax(15rem,.7fr) minmax(0,1.3fr);overflow:hidden;border:1px solid var(--line);border-radius:1.35rem;background:#091622; }
+.latency-lab { position:relative;z-index:2;overflow:visible; }
+.latency-lab .lab-copy { position:relative;z-index:3;border-radius:1.35rem 0 0 1.35rem;background:#091622; }
+.latency-lab .latency-result { border-radius:0 1.35rem 1.35rem 0; }
 .lab-copy { padding:1.5rem;background:linear-gradient(145deg,rgba(26,53,72,.48),rgba(9,22,34,.68)); }
 .lab-copy h3 { margin:.35rem 0 1.2rem;font-size:1.5rem;letter-spacing:-.035em; }
 .lab-copy label { margin:.8rem 0 .35rem;display:block;color:var(--muted);font-size:.72rem; }
@@ -161,7 +164,7 @@ dt { color:var(--cyan);font-size:.75rem;font-weight:700; } dd { margin:.35rem 0 
 @media (max-width:900px) {
   .course-layout { grid-template-columns:1fr;gap:2rem; }.course-rail { position:static;max-height:none;overflow:visible; }.course-rail nav { grid-template-columns:repeat(2,1fr); }.course-rail nav a { border-left:0;border-bottom:1px solid var(--line); }.course-rail nav a.active { border-bottom-color:var(--cyan); }
   .analogy-row { grid-template-columns:repeat(2,1fr); }.analogy-row>div:nth-child(3) { border-left:0;border-top:1px solid var(--line); }.analogy-row>div:nth-child(4) { border-top:1px solid var(--line); }
-  .lab-panel { grid-template-columns:1fr; }.local-scene { grid-template-columns:1fr; }.devices { grid-template-columns:repeat(3,1fr); }.router-node { margin:auto; }.tcp-lab { grid-template-columns:1fr; }
+  .lab-panel { grid-template-columns:1fr; }.latency-lab .lab-copy { border-radius:1.35rem 1.35rem 0 0; }.latency-lab .latency-result { border-radius:0 0 1.35rem 1.35rem; }.local-scene { grid-template-columns:1fr; }.devices { grid-template-columns:repeat(3,1fr); }.router-node { margin:auto; }.tcp-lab { grid-template-columns:1fr; }
 }
 @media (max-width:640px) {
   .learn-page .site-header { height:auto;min-height:4rem;padding:.45rem;gap:.25rem; }.learn-page .site-header .brand>span:last-child { display:none; }.learn-page .site-header nav { display:flex;gap:0; }.learn-page .nav-link { min-height:2.4rem;padding:.55rem .5rem;font-size:.68rem; }.header-action { display:none; }

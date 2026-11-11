@@ -6,6 +6,8 @@ GitHub Pages can deploy the complete visual frontend: the globe, Learn course, i
 
 GitHub Pages cannot run `server.mjs`, shell commands, or `traceroute`. A Pages-only deployment therefore cannot measure live hops. It will explain that the live API is unavailable instead of displaying an invented path.
 
+The Journey page performs an `/api/health` check before enabling Trace search or its playback controls. If the API is absent, unreachable, or does not advertise traceroute support, all measured markers are cleared and distance remains “Not measured.” This prevents the static Pages site from presenting the educational animation as a real route.
+
 ## Publish the frontend with GitHub Pages
 
 1. Open the repository on GitHub.

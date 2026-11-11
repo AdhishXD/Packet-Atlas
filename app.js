@@ -30,6 +30,8 @@ const queryInput = $('#queryInput');
 const targetInput = $('#targetInput');
 const traceButton = searchForm.querySelector('.trace-button');
 const traceButtonLabel = traceButton.querySelector('span');
+const runtimeNotice = $('#runtimeNotice');
+const runtimeRetry = $('#runtimeRetry');
 const playButton = $('#playButton');
 const restartButton = $('#restartButton');
 const speedSelect = $('#speedSelect');
@@ -44,6 +46,8 @@ let lessonBytes = new TextEncoder().encode(lessonQuery);
 let lessonCipher = new Uint8Array([0x8f,0x29,0xa4,0x71,0x0c,0xe3,0xb8,0x55]);
 let labPinned = false;
 let lastTraceExplanation = 'No live destination location was verified for this journey.';
+let backendReady = false;
+let backendChecking = false;
 
 if(!worldGeo){
   fetch('data/countries-110m.geojson')
@@ -52,12 +56,55 @@ if(!worldGeo){
     .catch(() => { worldGeo = null; });
 }
 
-if(location.protocol==='file:'){
-  $('#runtimeNotice').hidden=false;
-  $('#routeMode').textContent='Local server required';
-  $('#routeScope').textContent='The globe works offline; live hops and distance need npm start';
-  $('#originLabel strong').textContent='Open http://localhost:4173';
+function apiBase(){return String(window.PACKET_ATLAS_API_BASE||'').replace(/\/$/,'');}
+
+function clearMeasuredRoute(message){
+  livePlaceKeys.forEach(key=>delete places[key]);livePlaceKeys=[];
+  state.running=false;state.paused=false;state.complete=false;state.progress=0;state.elapsed=0;
+  playButton.disabled=true;restartButton.disabled=true;playButton.classList.remove('playing');playButton.setAttribute('aria-label','Start simulation');
+  $('#originLabel strong').textContent='No measured trace origin';
+  $('#routeMode').textContent='Live tracer unavailable';
+  $('#routeScope').textContent=message;
+  $('#stageKicker').textContent='Measurement required';
+  $('#stageTitle').textContent='No route is being shown';
+  $('#stageDescription').textContent='Packet Atlas will not substitute a simulated endpoint or predefined country when the tracing service is offline.';
+  $('#protocolMetric').textContent='—';$('#distanceMetric').textContent='Not measured';$('#timeMetric').textContent='0 ms';
+  $('#timelineStatus').textContent='Waiting for tracing server';$('#timelinePercent').textContent='0%';$('#timelineFill').style.width='0';$('#timelineDot').style.left='0';
+  $('#answerSection').hidden=true;
 }
+
+function showBackendUnavailable(message){
+  backendReady=false;backendChecking=false;traceButton.disabled=true;traceButton.classList.remove('loading');traceButtonLabel.textContent='Tracing unavailable';
+  runtimeNotice.hidden=false;$('#runtimeNoticeTitle').textContent='Live tracing server is not connected.';$('#runtimeNoticeText').textContent=message;runtimeRetry.hidden=false;
+  clearMeasuredRoute(message);
+}
+
+function showTraceFailure(message){
+  clearMeasuredRoute(message);
+  $('#routeMode').textContent='Trace not measured';
+  runtimeNotice.hidden=false;$('#runtimeNoticeTitle').textContent='This route could not be measured.';$('#runtimeNoticeText').textContent=message;runtimeRetry.hidden=true;
+}
+
+async function checkBackend(){
+  if(backendChecking)return false;
+  backendChecking=true;backendReady=false;traceButton.disabled=true;traceButton.classList.add('loading');traceButtonLabel.textContent='Checking tracer…';runtimeRetry.hidden=true;
+  if(location.protocol==='file:'){
+    showBackendUnavailable('Run npm start and open http://localhost:4173. A file-only page cannot measure network hops.');return false;
+  }
+  if(location.hostname.endsWith('github.io')&&!apiBase()){
+    showBackendUnavailable('GitHub Pages hosts the visual site only. Connect a deployed Packet Atlas API in config.js to measure real endpoints and hops.');return false;
+  }
+  try{
+    const response=await fetch(`${apiBase()}/api/health`,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(6000)});
+    const health=response.ok?await response.json():null;
+    if(!health?.ok||!health?.traceroute)throw new Error('The tracing service did not report traceroute support.');
+    backendReady=true;backendChecking=false;traceButton.disabled=false;traceButton.classList.remove('loading');traceButtonLabel.textContent='Trace search';runtimeNotice.hidden=true;
+    $('#routeMode').textContent='Ready for measured trace';$('#routeScope').textContent='The API is online · locations require independent agreement and latency checks';$('#originLabel strong').textContent='Site server · ready';
+    return true;
+  }catch(error){showBackendUnavailable(`The live API did not respond. ${error.message}`);return false;}
+}
+
+runtimeRetry.addEventListener('click',checkBackend);
 
 const places = {};
 let livePlaceKeys = [];
@@ -367,10 +414,11 @@ async function loadLiveTrace(targetHost) {
   $('#routeScope').textContent='Waiting for responding routers';
   try {
     if(location.protocol==='file:')throw new Error('Live tracing needs the Packet Atlas server. Run “npm start”, then open http://localhost:4173');
-    const apiBase=String(window.PACKET_ATLAS_API_BASE||'').replace(/\/$/,'');
-    const response = await fetch(`${apiBase}/api/trace?target=${encodeURIComponent(targetHost)}`, { headers:{ Accept:'application/json' } });
+    if(!backendReady)throw new Error('The tracing server is offline');
+    const response = await fetch(`${apiBase()}/api/trace?target=${encodeURIComponent(targetHost)}`, { headers:{ Accept:'application/json' } });
     if (!response.ok) { const problem=await response.json().catch(()=>({})); throw new Error(problem.detail || `Trace returned ${response.status}`); }
     const trace = await response.json();
+    runtimeNotice.hidden=true;
     lastTraceExplanation=trace.targetExplanation || trace.note || 'The destination location could not be verified.';
     lessonTargetHost=trace.targetHost;
     lessonTargetIp=trace.targetIp;
@@ -389,15 +437,7 @@ async function loadLiveTrace(targetHost) {
     return true;
   } catch (error) {
     lastTraceExplanation=`The live trace could not verify a destination: ${error.message}. No fallback country was substituted.`;
-    const origin=places.traceOrigin?'traceOrigin':null;
-    stages = [
-      { ...learningStages[0], at:origin, title:'Your question becomes an HTTPS request' },
-      { ...learningStages[1], at:origin },
-      { kicker:'Trace unavailable', title:'No physical route was invented', description:`${error.message}. Packet Atlas will not substitute a predefined country or cable path.`, protocol:'No live route', distance:'Unknown', layers:[3], duration:2200, at:origin },
-      { ...learningStages[3], at:origin }
-    ];
-    $('#routeMode').textContent='Trace unavailable';
-    $('#routeScope').textContent=error.message;
+    showTraceFailure(`The tracing server is online, but this destination returned no usable route. ${error.message}`);
     return false;
   }
 }
@@ -483,6 +523,7 @@ function animate(now) {
 }
 
 async function startJourney(query, targetHost, restart=false) {
+  if(!backendReady){if(!backendChecking)checkBackend();return;}
   if(traceButton.disabled&&!restart)return;
   state.query=query || state.query || 'How does a search travel?';
   labPinned=false;
@@ -492,15 +533,18 @@ async function startJourney(query, targetHost, restart=false) {
     traceButton.classList.add('loading');
     searchForm.setAttribute('aria-busy','true');
     traceButtonLabel.textContent='Tracing website…';
-    try { await loadLiveTrace(targetHost); }
+    let measured=false;
+    try { measured=await loadLiveTrace(targetHost); }
     finally {
-      traceButton.disabled=false;
-      traceButton.classList.remove('loading');
+      traceButton.disabled=!backendReady;
+      if(backendReady)traceButton.classList.remove('loading');
       searchForm.removeAttribute('aria-busy');
-      traceButtonLabel.textContent='Trace search';
+      traceButtonLabel.textContent=backendReady?'Trace search':'Tracing unavailable';
     }
+    if(!measured)return;
   }
   state.running=true;state.paused=false;state.complete=false;state.stage=0;state.progress=0;state.elapsed=0;state.stageStart=performance.now();state.centerLon=98;state.centerLat=18;state.targetLon=98;state.targetLat=18;state.cameraVelocityLon=0;state.cameraVelocityLat=0;
+  playButton.disabled=false;restartButton.disabled=false;
   playButton.classList.add('playing');playButton.setAttribute('aria-label','Pause simulation');
   $('#answerSection').hidden=true;
   updateStageUI();
@@ -563,3 +607,4 @@ new ResizeObserver(resizeCanvas).observe(canvas);
 resizeCanvas();
 preparePacketLesson(lessonQuery);
 requestAnimationFrame(animate);
+checkBackend();
