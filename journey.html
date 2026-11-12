@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#07111d" />
+    <meta
+      name="description"
+      content="An interactive, visual journey through DNS, TCP/IP, the OSI model, undersea cables, and servers."
+    />
+    <title>Packet Atlas — See how a search travels</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#simulator">Skip to simulator</a>
+
+    <header class="site-header" aria-label="Primary navigation">
+      <a class="brand" href="index.html" aria-label="All subjects">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Packet Atlas</span>
+      </a>
+      <nav aria-label="Page sections">
+        <a class="nav-link active" href="#simulator">Journey</a>
+        <a class="nav-link" href="#packet-lab">OSI model</a>
+        <a class="nav-link" href="learn.html">Learn</a>
+      </nav>
+      <button class="icon-button" id="infoButton" type="button" aria-label="About this simulation" aria-controls="aboutPanel" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10.6v6M12 7.5h.01"/></svg>
+      </button>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="eyebrow"><span class="pulse-dot"></span> Interactive network study</div>
+        <h1 id="hero-title">Follow a search.<br /><span>Across the planet.</span></h1>
+        <p>Trace any public website as your question becomes packets, passes through seven OSI layers, crosses networks, reaches a server, and returns as an answer.</p>
+
+        <form class="search-shell" id="searchForm" role="search">
+          <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4 4"/></svg>
+          <label class="sr-only" for="queryInput">Enter a question to trace</label>
+          <input id="queryInput" name="query" type="search" autocomplete="off" maxlength="120" value="How does DNS find this website?" placeholder="Ask something — “How do undersea cables work?”" />
+          <button class="trace-button" type="submit">
+            <span>Trace search</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M14 7l5 5-5 5"/></svg>
+          </button>
+        </form>
+        <div class="destination-control">
+          <label for="targetInput"><span>Trace destination</span><small>Paste any public website or hostname</small></label>
+          <input id="targetInput" name="target" form="searchForm" type="text" inputmode="url" autocomplete="url" autocapitalize="none" spellcheck="false" maxlength="253" value="www.wikipedia.org" placeholder="https://www.wikipedia.org" required />
+        </div>
+        <div class="suggestions" aria-label="Example destinations">
+          <span>Try a region</span>
+          <button type="button" data-query="How does DNS find this website?" data-target="www.nic.in">India · nic.in</button>
+          <button type="button" data-query="How do undersea internet cables work?" data-target="speedtest.singapore.linode.com">Singapore · Linode test</button>
+          <button type="button" data-query="What is the OSI model?" data-target="www.iij.ad.jp">Japan · IIJ</button>
+        </div>
+        <div class="runtime-notice" id="runtimeNotice" role="status" hidden>
+          <strong id="runtimeNoticeTitle">Connecting to the tracing server…</strong>
+          <span id="runtimeNoticeText">A real route will appear only after the live API responds.</span>
+          <button type="button" id="runtimeRetry">Retry connection</button>
+        </div>
+      </section>
+
+      <section class="simulator-wrap" id="simulator" aria-labelledby="simulator-title">
+        <h2 class="sr-only" id="simulator-title">Interactive packet journey simulator</h2>
+        <div class="simulator">
+          <div class="visual-stage">
+            <canvas id="globeCanvas" aria-label="Animated globe showing responding network hops whose approximate IP locations are compatible with measured latency"></canvas>
+            <div class="globe-label" id="originLabel">
+              <span class="device-glyph" aria-hidden="true"></span>
+              <span><small>Trace origin</small><strong>Site server · resolving…</strong></span>
+            </div>
+            <div class="map-legend" aria-label="Map legend">
+              <span><i class="legend-request"></i> Request</span>
+              <span><i class="legend-response"></i> Response</span>
+              <span><i class="legend-estimate"></i> Approximate IP location</span>
+              <span><i class="legend-gap"></i> Unobserved hops</span>
+            </div>
+            <div class="visual-caption">
+              <span class="live-pill"><i></i> <span id="routeMode">Ready for live trace</span></span>
+              <span id="routeScope">Natural Earth geography · IP locations are checked against measured latency</span>
+            </div>
+          </div>
+
+          <aside class="journey-panel" aria-label="Journey details">
+            <div class="panel-topline">
+              <span>Packet journey</span>
+              <span id="stepCount">Ready</span>
+            </div>
+            <div class="stage-copy" aria-live="polite" aria-atomic="true">
+              <span class="stage-kicker" id="stageKicker">Waiting at your device</span>
+              <h3 id="stageTitle">Type a search to begin</h3>
+              <p id="stageDescription">Your query stays in this browser. Press Trace search to measure responding network hops from this site’s server and follow the protocol journey.</p>
+            </div>
+
+            <div class="metric-row" aria-label="Current network metrics">
+              <div><small>Protocol</small><strong id="protocolMetric">—</strong></div>
+              <div><small>Mapped distance</small><strong id="distanceMetric">Not traced</strong></div>
+              <div><small>Elapsed</small><strong id="timeMetric">0 ms</strong></div>
+            </div>
+
+            <div class="osi-mini" id="layers" aria-labelledby="osi-title">
+              <div class="section-heading">
+                <span id="osi-title">OSI layers</span>
+                <button type="button" id="expandLayers" aria-expanded="false" aria-controls="layerDetails">View all 7</button>
+              </div>
+              <ol class="layer-stack" id="layerStack">
+                <li data-layer="7"><span>7</span><strong>Application</strong><small>HTTP · DNS</small></li>
+                <li data-layer="6"><span>6</span><strong>Presentation</strong><small>TLS · encoding</small></li>
+                <li data-layer="5"><span>5</span><strong>Session</strong><small>Connection</small></li>
+                <li data-layer="4"><span>4</span><strong>Transport</strong><small>TCP · ports</small></li>
+                <li data-layer="3"><span>3</span><strong>Network</strong><small>IP · routing</small></li>
+                <li data-layer="2"><span>2</span><strong>Data link</strong><small>Ethernet · Wi‑Fi</small></li>
+                <li data-layer="1"><span>1</span><strong>Physical</strong><small>Light · radio</small></li>
+              </ol>
+              <div class="tcp-map" aria-label="TCP IP model mapping"><span>TCP/IP mapping</span><b>Application</b><b>Transport</b><b>Internet</b><b>Link</b></div>
+            </div>
+          </aside>
+
+          <div class="timeline" aria-label="Simulation playback controls">
+            <button class="play-button" id="playButton" type="button" aria-label="Start simulation" disabled>
+              <svg class="play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 8 5-8 5Z"/></svg>
+              <svg class="pause-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7v10M15 7v10"/></svg>
+            </button>
+            <div class="timeline-main">
+              <div class="timeline-labels"><span id="timelineStatus">Ready to trace</span><span id="timelinePercent">0%</span></div>
+              <div class="track" id="timelineTrack"><div class="track-fill" id="timelineFill"></div><div class="track-dot" id="timelineDot"></div></div>
+            </div>
+            <label class="speed-control">Speed
+              <select id="speedSelect" aria-label="Simulation speed">
+                <option value="0.7">0.7×</option>
+                <option value="1" selected>1×</option>
+                <option value="1.5">1.5×</option>
+                <option value="2">2×</option>
+              </select>
+            </label>
+            <button class="restart-button" id="restartButton" type="button" aria-label="Restart journey" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8V4m0 0h-4m4 0-3.1 3.1A7 7 0 1 0 19 15"/></svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="answer-section" id="answerSection" aria-live="polite" hidden>
+        <div class="answer-card">
+          <div class="answer-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></div>
+          <div><span class="answer-label">Response reassembled at Layer 7</span><h2 id="answerQuestion"></h2><p id="answerText"></p><p class="answer-location"><strong>Why this endpoint?</strong> <span id="answerLocation"></span></p></div>
+          <button type="button" id="traceAgain">Trace another</button>
+        </div>
+      </section>
+
+      <section class="packet-lab-section" id="packet-lab" aria-labelledby="packet-lab-title">
+        <div class="section-intro lab-intro">
+          <span class="eyebrow">Inside the packet</span>
+          <h2 id="packet-lab-title">See every layer change the message.</h2>
+          <p>Your words are encoded, encrypted, divided, addressed, framed, and finally turned into physical signals. Select a layer to inspect exactly what it adds.</p>
+        </div>
+        <div class="packet-lab">
+          <div class="lab-layer-nav" role="tablist" aria-label="OSI transformation layers">
+            <button type="button" role="tab" aria-controls="labWorkbench" aria-selected="true" data-lab-layer="7"><span>7</span><strong>Application</strong><small>Meaning</small></button>
+            <button type="button" role="tab" aria-controls="labWorkbench" aria-selected="false" data-lab-layer="6"><span>6</span><strong>Presentation</strong><small>Encrypt</small></button>
+            <button type="button" role="tab" aria-controls="labWorkbench" aria-selected="false" data-lab-layer="5"><span>5</span><strong>Session</strong><small>Connect</small></button>
+            <button type="button" role="tab" aria-controls="labWorkbench" aria-selected="false" data-lab-layer="4"><span>4</span><strong>Transport</strong><small>Segment</small></button>
+            <button type="button" role="tab" aria-controls="labWorkbench" aria-selected="false" data-lab-layer="3"><span>3</span><strong>Network</strong><small>Address</small></button>
+            <button type="button" role="tab" aria-controls="labWorkbench" aria-selected="false" data-lab-layer="2"><span>2</span><strong>Data link</strong><small>Frame</small></button>
+            <button type="button" role="tab" aria-controls="labWorkbench" aria-selected="false" data-lab-layer="1"><span>1</span><strong>Physical</strong><small>Signal</small></button>
+          </div>
+
+          <div class="lab-workbench" id="labWorkbench" role="tabpanel" aria-live="polite">
+            <div class="lab-toolbar">
+              <span id="labStepLabel">Layer 7 of 7</span>
+              <div class="lab-controls">
+                <button type="button" id="labPrevious" aria-label="Previous OSI layer">←</button>
+                <button type="button" id="labNext">Next layer <span>→</span></button>
+              </div>
+            </div>
+            <div class="transform-heading">
+              <span class="transform-icon" id="labIcon" aria-hidden="true">Aa</span>
+              <div><span id="labKicker">Application data</span><h3 id="labTitle">The browser gives your words structure</h3></div>
+            </div>
+            <p class="lab-description" id="labDescription">The query becomes part of an HTTP request. Headers describe the destination, language, accepted formats, and other context the server needs.</p>
+
+            <div class="data-transform" id="dataTransform">
+              <div class="data-block source-block"><small id="labInputLabel">Your words</small><code id="labInput">How does DNS work?</code></div>
+              <div class="transform-arrow" aria-hidden="true"><i></i><span>→</span></div>
+              <div class="data-block result-block"><small id="labOutputLabel">HTTP request</small><code id="labOutput">GET /search?q=How%20does%20DNS%20work?</code></div>
+            </div>
+
+            <div class="packet-anatomy" id="packetAnatomy" aria-label="Current protocol data unit">
+              <span class="packet-part app-part">HTTP data</span>
+            </div>
+            <div class="signal-visual" id="signalVisual" aria-hidden="true">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+
+            <div class="lab-explanation">
+              <div><small>What changed</small><strong id="labChanged">A method, path, and headers surround the query.</strong></div>
+              <div><small>Why it matters</small><strong id="labWhy">Both browser and server now agree on how to interpret the message.</strong></div>
+              <div><small>Unit name</small><strong id="labUnit">Data</strong></div>
+            </div>
+            <p class="lab-note" id="labNote">The examples are simplified for learning. Modern searches may use HTTP/2 or HTTP/3 and may package fields differently.</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer><span>Packet Atlas</span><p>Built to make invisible infrastructure visible.</p><a href="#top">Back to top ↑</a></footer>
+
+    <div class="sheet-scrim" id="sheetScrim" hidden></div>
+    <aside class="info-sheet" id="aboutPanel" aria-labelledby="sheetTitle" aria-modal="true" role="dialog" hidden>
+      <button class="sheet-close" id="closeSheet" type="button" aria-label="Close details">×</button>
+      <span class="sheet-eyebrow">Study note</span>
+      <h2 id="sheetTitle">A model, not a packet capture</h2>
+      <p id="sheetBody">Packet Atlas keeps every query in your browser. It animates a representative journey so you can study encapsulation, addressing, routing, physical media, server processing, and decapsulation without collecting traffic.</p>
+      <div class="sheet-fact"><span>Private by design</span><strong>No query leaves this page</strong></div>
+    </aside>
+
+    <script src="data/countries-110m.js"></script>
+    <script src="config.js"></script>
+    <script src="node_modules/d3/dist/d3.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -2,7 +2,7 @@
 
 ## What GitHub Pages can host
 
-GitHub Pages can deploy the complete visual frontend: the globe, Learn course, interactive labs, animations, and quizzes. The included workflow publishes it whenever `main` is updated.
+GitHub Pages can deploy the complete visual frontend: the subject dashboard, globe, both learning guides, interactive labs, animations, and question bank. The included workflow publishes it whenever `main` is updated.
 
 GitHub Pages cannot run `server.mjs`, shell commands, or `traceroute`. A Pages-only deployment therefore cannot measure live hops. It will explain that the live API is unavailable instead of displaying an invented path.
 

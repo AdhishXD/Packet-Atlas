@@ -1,10 +1,14 @@
 # Packet Atlas
 
-Packet Atlas is an interactive learning website that visualizes how a search request can move through the OSI model, TCP/IP, local networks, DNS, routers, subsea fiber, edge servers, and an origin server before returning to the browser.
+Packet Atlas is an interactive computer-science study site. The home page offers two courses: Computer Networks and Operating Systems.
+
+- `/journey.html` preserves the network tracer and OSI demonstration.
+- `/learn.html` is the existing Computer Networks learning guide.
+- `/os.html` is the Operating Systems guide, presenting one chapter at a time with an interactive model in every chapter and 105 worked five-mark question-bank responses. Scheduling answers include Gantt charts; page replacement and disk scheduling answers show step traces.
 
 The globe uses Natural Earth-derived country geometry from `world-atlas` with an orthographic D3 projection. The packet lab demonstrates the complete transformation from user text to UTF-8, locally generated AES-GCM ciphertext, session state, a TCP segment, an IP packet, a link-layer frame, and physical signals.
 
-The separate Learn course at `/learn.html` provides eleven plain-language chapters, interactive DNS, packet, TCP, NAT, OSI, and latency models, a knowledge check, a glossary, and credited infrastructure imagery.
+The Computer Networks Learn course provides eleven plain-language chapters, interactive DNS, packet, TCP, NAT, OSI, and latency models, a knowledge check, a glossary, and credited infrastructure imagery.
 
 ## Run locally
 

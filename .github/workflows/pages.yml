@@ -45,7 +45,7 @@ jobs:
       - name: Build static frontend
         run: |
           mkdir -p _site/assets _site/data _site/node_modules/d3/dist
-          cp index.html learn.html styles.css learn.css app.js learn.js config.js _site/
+          cp index.html journey.html learn.html os.html styles.css learn.css os.css app.js learn.js os.js os-data.js os-questions.js os-answers.js config.js _site/
           cp -R assets/. _site/assets/
           cp data/countries-110m.geojson data/countries-110m.js _site/data/
           cp node_modules/d3/dist/d3.min.js _site/node_modules/d3/dist/
